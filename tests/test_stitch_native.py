@@ -63,6 +63,9 @@ class McpTests(unittest.TestCase):
                      {"jsonrpc": "2.0", "id": 3, "method": "prompts/list"},
                      {"jsonrpc": "2.0", "id": 4, "method": "resources/list"})
         self.assertEqual(len(r), 4)
+        import re
+        ver = re.search(r'version = "([^"]+)"', (ROOT / "pyproject.toml").read_text()).group(1)
+        self.assertEqual(r[0]["result"]["serverInfo"]["version"], ver)
         names = {t["name"] for t in r[1]["result"]["tools"]}
         self.assertIn("stitch_to_native", names)
         self.assertEqual(r[2]["result"]["prompts"][0]["name"], "convert_screen")

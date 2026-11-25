@@ -19,7 +19,7 @@ VERSION = "0.2.0"
 SRC = {
     "html": {"type": "string", "description": "Stitch screen HTML (the export, including the tailwind-config script)."},
     "path": {"type": "string", "description": "Path to a Stitch HTML file. Used when html is not given."},
-    "url": {"type": "string", "description": "HTTPS download URL of the screen HTML (e.g. htmlCode.downloadUrl from the Stitch MCP get_screen)."},
+    "url": {"type": "string", "description": "HTTPS download URL of the screen HTML (a public https URL; Stitch downloadUrls need OAuth, so pass that HTML via html instead)."},
 }
 MAP = {"map": {"type": "object", "description": 'Token map: {"colors": {token|#hex: expr}, "fonts": {token: expr}}.'}}
 NAME = {"name": {"type": "string", "description": "Generated view/composable name.", "default": "StitchScreen"}}
@@ -87,7 +87,7 @@ PROMPTS = {
             {"name": "platform", "description": "swiftui, compose or both", "required": False},
         ],
         "text": ("Convert the Stitch screen {screen} to {platform}.\n"
-                 "1. If it is a Stitch project/screen id, call the Stitch MCP get_screen and use htmlCode.downloadUrl as url.\n"
+                 "1. If it is a Stitch project/screen id, call the Stitch MCP get_screen, then download_file on htmlCode, and pass the HTML text as html.\n"
                  "2. Read this project's design system (colours, fonts) and build a token map (see resource stitch-native://docs/token-map).\n"
                  "3. Call stitch_to_native (or stitch_to_swiftui / stitch_to_compose) with that map.\n"
                  "4. Replace every off-token literal in the report with the closest design-system token, wire real data, and put strings in localisation."),
