@@ -5,3 +5,7 @@ out_*
 *.ir.json
 *.egg-info/
 build/
+ci/compose/src/main/kotlin/Theme.kt
+ci/compose/src/main/kotlin/MatchStatsScreen.kt
+ci/compose/build/
+ci/compose/.gradle/

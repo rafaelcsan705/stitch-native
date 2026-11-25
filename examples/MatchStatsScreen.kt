@@ -120,9 +120,9 @@ fun MatchStatsScreen() {
                         )
                     }
                     Row(modifier = Modifier.fillMaxWidth().fillMaxWidth().height(8.dp).background(StitchTheme.surfaceContainerLow, CircleShape).padding(2.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(0.53f).fillMaxHeight().fillMaxWidth().background(StitchTheme.primaryContainer, RoundedCornerShape(topStart = 50, bottomStart = 50, topEnd = 0, bottomEnd = 0)), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
+                        Column(modifier = Modifier.weight(0.53f).fillMaxHeight().fillMaxWidth().background(StitchTheme.primaryContainer, RoundedCornerShape(topStartPercent = 50, topEndPercent = 0, bottomEndPercent = 0, bottomStartPercent = 50)), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
                         }
-                        Column(modifier = Modifier.weight(0.47f).fillMaxHeight().fillMaxWidth().background(StitchTheme.secondaryContainer, RoundedCornerShape(topStart = 0, bottomStart = 0, topEnd = 50, bottomEnd = 50)), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
+                        Column(modifier = Modifier.weight(0.47f).fillMaxHeight().fillMaxWidth().background(StitchTheme.secondaryContainer, RoundedCornerShape(topStartPercent = 0, topEndPercent = 50, bottomEndPercent = 50, bottomStartPercent = 0)), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
                         }
                     }
                 }
@@ -148,9 +148,9 @@ fun MatchStatsScreen() {
                         )
                     }
                     Row(modifier = Modifier.fillMaxWidth().fillMaxWidth().height(8.dp).background(StitchTheme.surfaceContainerLow, CircleShape).padding(2.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(0.52f).fillMaxHeight().fillMaxWidth().background(StitchTheme.error, RoundedCornerShape(topStart = 50, bottomStart = 50, topEnd = 0, bottomEnd = 0)), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
+                        Column(modifier = Modifier.weight(0.52f).fillMaxHeight().fillMaxWidth().background(StitchTheme.error, RoundedCornerShape(topStartPercent = 50, topEndPercent = 0, bottomEndPercent = 0, bottomStartPercent = 50)), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
                         }
-                        Column(modifier = Modifier.weight(0.48f).fillMaxHeight().fillMaxWidth().background(StitchTheme.secondaryContainer, RoundedCornerShape(topStart = 0, bottomStart = 0, topEnd = 50, bottomEnd = 50)), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
+                        Column(modifier = Modifier.weight(0.48f).fillMaxHeight().fillMaxWidth().background(StitchTheme.secondaryContainer, RoundedCornerShape(topStartPercent = 0, topEndPercent = 50, bottomEndPercent = 50, bottomStartPercent = 0)), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
                         }
                     }
                 }

@@ -1580,10 +1580,12 @@ class ComposeEmitter(SwiftEmitter):
                 x = cs.get(side, 0)
                 return "50" if x >= 999 else self.num(x)
             pct = any(x >= 999 for x in cs.values())
-            u = "" if pct else ".dp"
             l, r_ = v("l"), v("r")
-            return (f"RoundedCornerShape(topStart = {l}{u}, bottomStart = {l}{u}, "
-                    f"topEnd = {r_}{u}, bottomEnd = {r_}{u})")
+            if pct:  # the Int overload is percent-based and has its own parameter names
+                return (f"RoundedCornerShape(topStartPercent = {l}, topEndPercent = {r_}, "
+                        f"bottomEndPercent = {r_}, bottomStartPercent = {l})")
+            return (f"RoundedCornerShape(topStart = {l}.dp, bottomStart = {l}.dp, "
+                    f"topEnd = {r_}.dp, bottomEnd = {r_}.dp)")
         return None
 
     def mod_chain(self, s: dict, extra: list[str] | None = None) -> str:
@@ -2336,7 +2338,8 @@ img { display: block; max-width: 100%%; }
         t = t if t in self.BOX_TAGS or t in ("button", "a") else "div"
         pct = s.get("layout") == "grid" and any("widthPct" in self.cstyle(c) for c in kids)
         mode = "flexpct" if pct else ("grid" if s.get("layout") == "grid" else None)
-        head = f"{ind}<{t}{self.attrs([self.cls(self.declarations(s, kids, parent))], (extra or []) + ([f'id={chr(34)}{html_escape(n['id'])}{chr(34)}'] if n.get('id') else []))}>"
+        id_attr = ['id="' + html_escape(n["id"]) + '"'] if n.get("id") else []
+        head = f"{ind}<{t}{self.attrs([self.cls(self.declarations(s, kids, parent))], (extra or []) + id_attr)}>"
         out = []
         for ch in kids:
             out += self.node(ch, ind + "  ", (s, mode))

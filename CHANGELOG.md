@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.1 — 2026-11-25
+
+Fixes found by CI on the 0.7.0 tag. 0.7.0 was never published to PyPI.
+
+- **Python 3.10 and 3.11.** `stitch_native.py` failed to import (`SyntaxError: f-string: unmatched '['`): the HTML emitter nested same-type quotes inside an f-string, which only Python 3.12+ accepts. The package declares `requires-python >= 3.10`.
+- **Compose: one-sided pill corners.** `rounded-l-full` / `rounded-r-full` emitted `RoundedCornerShape(topStart = 50, ...)`, which does not compile (the named `topStart` overloads take `Dp` or `Float`). They now emit the percent overload: `RoundedCornerShape(topStartPercent = 50, topEndPercent = 0, bottomEndPercent = 0, bottomStartPercent = 50)`.
+- **CI compose job.** The desktop compile check has no Android `@Preview`; a compile-only stub of `androidx.compose.ui.tooling.preview.Preview` lives in `ci/compose/src`. Generated code is unchanged.
+- Tests: `examples/MatchStatsScreen.kt` is now a checked golden, with an assertion on the percent overload.
+
 ## 0.7.0 — 2026-11-25
 
 A project can declare its ecosystem, and there is an HTML target.

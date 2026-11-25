@@ -49,6 +49,14 @@ class ConverterTests(unittest.TestCase):
         swift = sn.SwiftEmitter(self.th, {}).screen(self.ir, "MatchStatsView")
         self.assertEqual(swift.strip(), (ROOT / "examples" / "MatchStatsView.swift").read_text().strip())
 
+    def test_compose_example_up_to_date(self):
+        kt = sn.ComposeEmitter(self.th, {}).screen(self.ir, "MatchStatsScreen")
+        self.assertEqual(kt.strip(), (ROOT / "examples" / "MatchStatsScreen.kt").read_text().strip())
+        # One-sided pills use the percent overload; `topStart = 50` (an Int) does not compile.
+        self.assertIn("RoundedCornerShape(topStartPercent = 50, topEndPercent = 0, "
+                      "bottomEndPercent = 0, bottomStartPercent = 50)", kt)
+        self.assertNotRegex(kt, r"topStart = \d+[,)]")
+
 
 
 class StateModeTests(unittest.TestCase):
