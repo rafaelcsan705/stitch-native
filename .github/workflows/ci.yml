@@ -24,6 +24,7 @@ jobs:
         with: { distribution: temurin, java-version: "17" }
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: "8.10" }
+      - run: mkdir -p ci/compose/src/main/kotlin
       - run: python3 stitch_native.py tokens-kotlin fixtures/match-stats.html > ci/compose/src/main/kotlin/Theme.kt
       - run: cp examples/MatchStatsScreen.kt ci/compose/src/main/kotlin/
       - run: gradle -p ci/compose compileKotlin
