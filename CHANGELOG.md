@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0 — 2026-11-25
+- `--mode state` (CLI and MCP `mode` argument): a stateless screen fed by a generated State struct/data class with a `.sample` copied from the export.
+  - Repeated rows become `ForEach` / `forEach { key(id) }` over Identifiable items; tabs become a segmented `Picker` / `SingleChoiceSegmentedButtonRow`.
+  - Visible text goes through localization keys (`LocalizedStringKey` / `stringResource`); money is stored as Int/Long cents and formatted with the configured locale.
+  - Actions go out through callbacks (`onRepeat(order)`), Compose state is hoisted with `rememberSaveable`; no ViewModel or UseCase is generated.
+  - Previews: light, dark and large text (`accessibility3` / `fontScale = 2f`).
+- Golden examples `OrdersListView.swift` / `OrdersListScreen.kt` from the `fornada-encomendas` fixture.
+
 ## 0.3.0 — 2026-11-25
 - Overlays: sheets, toasts, top and bottom bars (`safeAreaInset`/`.sheet`/`.overlay`; Compose `Scaffold`/`Dialog`).
 - `<button>` becomes `Button`, inline `<svg>` becomes a vector node, `<script>` text is dropped.

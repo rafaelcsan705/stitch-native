@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stitch-native"
-version = "0.3.0"
+version = "0.4.0"
 description = "Convert Google Stitch screens (HTML + Tailwind) into native SwiftUI and Jetpack Compose. CLI + MCP server."
 readme = "README.md"
 license = "MIT"

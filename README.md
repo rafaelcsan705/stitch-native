@@ -49,7 +49,13 @@ python3 stitch_native.py compose  screen.html --name MatchStatsScreen  > MatchSt
 python3 stitch_native.py tokens        screen.html > StitchTheme.swift
 python3 stitch_native.py tokens-kotlin screen.html > StitchTheme.kt
 python3 stitch_native.py ir            screen.html > screen.ir.json
+
+# State mode: stateless screen + State struct/sample, keys, callbacks (no ViewModel)
+python3 stitch_native.py swiftui fixtures/fornada-encomendas.html --name OrdersListView   --mode state
+python3 stitch_native.py compose fixtures/fornada-encomendas.html --name OrdersListScreen --mode state
 ```
+
+`--mode state` reads `locale`, `timeZone`, `currency` and key prefixes from `stitch-native.json`. Plug the screen into your own ViewModel/Coordinator: it only takes `state` and callbacks.
 
 ### Map tokens to your design system
 

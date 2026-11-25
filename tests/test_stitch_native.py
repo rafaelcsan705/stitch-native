@@ -49,6 +49,29 @@ class ConverterTests(unittest.TestCase):
         self.assertEqual(swift.strip(), (ROOT / "examples" / "MatchStatsView.swift").read_text().strip())
 
 
+
+class StateModeTests(unittest.TestCase):
+    def gen(self, target, name):
+        return subprocess.run([sys.executable, str(ROOT / "stitch_native.py"), target,
+                               str(ROOT / "fixtures" / "fornada-encomendas.html"), "--name", name, "--mode", "state"],
+                              capture_output=True, text=True, timeout=60, check=True).stdout
+
+    def test_swift_state_golden_and_rules(self):
+        out = self.gen("swiftui", "OrdersListView")
+        self.assertEqual(out.strip(), (ROOT / "examples" / "OrdersListView.swift").read_text().strip())
+        for must in ("struct OrdersListViewState", "Identifiable", "Picker(", "onRepeat", "#Preview(\"Dark\")"):
+            self.assertIn(must, out)
+        self.assertNotIn("ViewModel", out)
+        self.assertNotIn("UseCase", out)
+
+    def test_compose_state_golden_and_rules(self):
+        out = self.gen("compose", "OrdersListScreen")
+        self.assertEqual(out.strip(), (ROOT / "examples" / "OrdersListScreen.kt").read_text().strip())
+        for must in ("data class OrdersListScreenState", "SegmentedButton(", "onRepeat: (", "rememberSaveable",
+                     "stringResource(R.string.", "UI_MODE_NIGHT_YES"):
+            self.assertIn(must, out)
+        self.assertNotIn("ViewModel", out)
+
 class McpTests(unittest.TestCase):
     def rpc(self, *msgs):
         inp = "\n".join(json.dumps(m) for m in msgs) + "\n"

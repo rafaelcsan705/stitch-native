@@ -314,7 +314,10 @@ def build_ir(node, th: Theme, warn: list, inherited: dict | None = None, overlay
         t = kids[0]
         box = {k: v for k, v in style.items() if k not in text_keys}
         return {"kind": "text", "text": t["text"], "style": t["style"], "box": box, "tag": node.tag}
-    return {"kind": "box", "tag": node.tag, "style": style, "children": kids}
+    out = {"kind": "box", "tag": node.tag, "style": style, "children": kids}
+    if node.attrs.get("id"):
+        out["id"] = node.attrs["id"]
+    return out
 
 
 def parse(html: str):
@@ -338,6 +341,309 @@ def parse(html: str):
 def camel(token: str) -> str:
     parts = re.split(r"[-_]", token)
     return parts[0] + "".join(p[:1].upper() + p[1:] for p in parts[1:])
+
+
+# ---------------------------------------------------------------- state mode (IR annotations)
+
+PRICE_RE = re.compile(r"^(\d+)[,.](\d{2})\s?([€$£])$")
+CURRENCY = {"€": "EUR", "$": "USD", "£": "GBP"}
+CALL_RE = re.compile(r"^\s*(\w+)\(\s*'([^']*)'\s*\)\s*;?\s*$")
+NOARG_RE = re.compile(r"^\s*(\w+)\(\s*\)\s*;?\s*$")
+DATE_RE = re.compile(r"(?i)\d{1,2}[:h]\d{2}|\b(ontem|hoje|amanhã|yesterday|today|tomorrow|janeiro|fevereiro|março|"
+                     r"abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|jan|feb|mar|apr|may|jun|"
+                     r"jul|aug|sep|oct|nov|dec)\b")
+
+
+def _ascii(s: str) -> str:
+    import unicodedata
+    return unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
+
+
+def _words(s: str) -> list[str]:
+    stop = {"de", "da", "do", "das", "dos", "e", "a", "o", "the", "of", "and", "em", "para", "com"}
+    return [w.lower() for w in re.findall(r"[A-Za-z]+", _ascii(s)) if w.lower() not in stop]
+
+
+def _lower_camel(words: list[str]) -> str:
+    return (words[0] + "".join(w.capitalize() for w in words[1:])) if words else ""
+
+
+def _split_camel(s: str) -> list[str]:
+    return [w.lower() for w in re.findall(r"[A-Z]?[a-z0-9]+|[A-Z]+(?![a-z])", s)]
+
+
+def _sig(n: dict) -> str:
+    k = n["kind"]
+    if k == "text":
+        return "T"
+    if k in ("icon", "vector", "image"):
+        return k[0].upper()
+    if k == "button":
+        return "B(" + _sig(n["content"]) + ")"
+    return f"{n.get('tag')}:{n['style'].get('layout')}[" + ",".join(_sig(c) for c in n["children"]) + "]"
+
+
+def _style_sig(n: dict) -> str:
+    parts = [json.dumps(n.get("style", {}), sort_keys=True, default=str), json.dumps(n.get("box", {}), sort_keys=True, default=str)]
+    sub = [n["content"]] if n["kind"] == "button" else n.get("children", [])
+    return "|".join(parts + [_style_sig(c) for c in sub])
+
+
+def _leaves(n: dict) -> list[dict]:
+    """Texts, icons and buttons in document order (the positions a row template can vary)."""
+    if n["kind"] in ("text", "icon"):
+        return [n]
+    if n["kind"] == "button":
+        return [n] + _leaves(n["content"])
+    return [x for c in n.get("children", []) for x in _leaves(c)]
+
+
+class StateModel:
+    """What `extract_state` found: fields, repeated groups, keys, callbacks, tabs. Emitters read it."""
+
+    def __init__(self, name: str, cfg: dict, lang: str | None):
+        sc = cfg.get("state", {}) or {}
+        self.name = name
+        self.type = name + "State"
+        base = re.sub(r"(View|Screen)$", "", name) or name
+        self.prefix = sc.get("prefix") or (base[:1].lower() + base[1:])
+        self.rename = sc.get("rename", {}) or {}
+        self.locale = sc.get("locale") or (lang or "en-US").replace("-", "_")
+        self.timezone = sc.get("timezone")
+        self.types = sc.get("types", {}) or {}
+        self.fields: list[dict] = []        # top-level: {name, type, value, cents?, code?}
+        self.groups: list[dict] = []        # {item, collection, fields: [...], rows: [[values]], handler}
+        self.keys: dict[str, str] = {}      # key -> source text
+        self._key_by_text: dict[str, str] = {}
+        self.callbacks: dict[str, dict] = {}  # name -> {"item": Item | None, "fn": js fn}
+        self.flags: set[str] = set()
+        self.tabs: dict | None = None
+        self.warnings: list[str] = []
+
+    def unique(self, base: str, taken: set) -> str:
+        base = self.rename.get(base, base) or "value"
+        n, i = base, 2
+        while n in taken:
+            n, i = f"{base}{i}", i + 1
+        taken.add(n)
+        return n
+
+    def key(self, text: str, hint: str | None = None) -> str:
+        if text in self._key_by_text and not hint:
+            return self._key_by_text[text]
+        slug = hint or _lower_camel(_words(text)[:3]) or "text"
+        k, i = f"{self.prefix}.{slug}", 2
+        while k in self.keys and self.keys[k] != text:
+            k, i = f"{self.prefix}.{slug}{i}", i + 1
+        self.keys[k] = text
+        self._key_by_text.setdefault(text, k)
+        return k
+
+
+def _field_base(text: str) -> str:
+    t = text.strip()
+    if re.fullmatch(r"#\d+", t):
+        return "number"
+    if PRICE_RE.match(t):
+        return "price"
+    if DATE_RE.search(t):
+        return "date"
+    return _lower_camel(_words(t)[:2]) or "value"
+
+
+def _value(text: str) -> dict:
+    t = text.strip()
+    if m := PRICE_RE.match(t):
+        return {"type": "currency", "value": t, "cents": int(m.group(1)) * 100 + int(m.group(2)), "code": CURRENCY[m.group(3)]}
+    return {"type": "string", "value": t}
+
+
+def _find_overlay(fn: str, ovs: list) -> str | None:
+    stem = re.sub(r"^(open|close|show|hide|toggle)", "", fn)
+    stem = stem[:1].lower() + stem[1:]
+    for o in ovs:
+        if camel(re.sub(r"[^A-Za-z0-9_-]", "-", o["id"])).lower() == stem.lower():
+            return o["id"]
+    return None
+
+
+def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> StateModel:
+    """Annotate the IR in place for state mode and return the model. Without this call nothing changes."""
+    st = StateModel(name, cfg, lang)
+    ovs = ir.get("overlays", [])
+    taken: set = set()
+
+    def mark_text(n: dict, scope: str, ftaken: set, fields: list, in_shell: bool):
+        t = n["text"].strip()
+        if not re.search(r"[A-Za-z0-9À-ÿ]", t):
+            n["verbatim"] = True
+            return
+        if not in_shell and re.search(r"\d", t):
+            v = _value(t)
+            fname = st.unique(_field_base(t), ftaken)
+            fields.append({"name": fname, **v})
+            n["bind"] = {"scope": scope, "field": fname, "type": v["type"]}
+        else:
+            n["key"] = st.key(t)
+
+    def handle_button(b: dict, in_row: str | None):
+        act = (b.get("action") or "").strip()
+        if m := CALL_RE.match(act):
+            fn = m.group(1)
+            word = _split_camel(fn)[0]
+            cb = "on" + word.capitalize()
+            if in_row:
+                st.callbacks[cb] = {"item": in_row, "fn": fn}
+                b["handler"] = {"callback": cb, "item": True}
+                return cb
+            st.callbacks.setdefault(cb, {"item": None, "fn": fn, "arg": "String"})
+            b["handler"] = {"callback": cb, "arg": m.group(2)}
+        elif m := NOARG_RE.match(act):
+            fn = m.group(1)
+            if (oid := _find_overlay(fn, ovs)) is not None:
+                st.flags.add(oid)
+                b["flag"] = {"overlay": oid, "value": not fn.startswith(("close", "hide"))}
+            else:
+                cb = "on" + fn[:1].upper() + fn[1:]
+                st.callbacks.setdefault(cb, {"item": None, "fn": fn})
+                b["handler"] = {"callback": cb}
+        return None
+
+    def detect_tabs(n: dict) -> bool:
+        kids = n.get("children", [])
+        calls = [CALL_RE.match((k.get("action") or "")) if k["kind"] == "button" else None for k in kids]
+        if len(kids) < 2 or not all(calls) or len({c.group(1) for c in calls}) != 1 or st.tabs:
+            return False
+        cases = []
+        for k, c in zip(kids, calls):
+            first = next((x for x in _leaves(k["content"]) if x["kind"] == "text" and re.search(r"[A-Za-z]", x["text"])), None)
+            label = first["text"].strip() if first else c.group(2)
+            case = _lower_camel(_words(c.group(2))) or f"tab{len(cases) + 1}"
+            cases.append({"case": case, "arg": c.group(2), "key": st.key(label, f"tab.{case}")})
+        st.tabs = {"fn": calls[0].group(1), "cases": cases, "default": cases[0]["case"]}
+        n["picker"] = True
+        return True
+
+    def row_group(n: dict) -> bool:
+        kids = n.get("children", [])
+        if len(kids) < 2 or any(k["kind"] != "box" for k in kids) or len({_sig(k) for k in kids}) != 1:
+            return False
+        rows = [_leaves(k) for k in kids]
+        tmpl = rows[0]
+        if not any(x["kind"] == "text" for x in tmpl):
+            return False
+        varying = [i for i in range(len(tmpl)) if tmpl[i]["kind"] in ("text", "icon")
+                   and len({(r[i].get("text") or r[i].get("material") or "").strip() for r in rows}) > 1]
+        if not varying:
+            return False
+        # item / collection names: from the row button's handler (repeatOrder -> Order / orders)
+        handler = next((CALL_RE.match(x.get("action") or "") for x in tmpl if x["kind"] == "button"
+                        and CALL_RE.match(x.get("action") or "")), None)
+        noun = "".join(w.capitalize() for w in _split_camel(handler.group(1))[1:]) if handler else ""
+        idx = len(st.groups) + 1
+        item = st.rename.get(noun or f"Item{idx}", noun or f"Item{idx}")
+        coll = st.unique((item[:1].lower() + item[1:]) + "s", taken)
+        g = {"item": item, "collection": coll, "fields": [], "rows": [[] for _ in rows], "handlerArg": bool(handler)}
+        ftaken: set = {"id"}
+        for i in range(len(tmpl)):
+            x = tmpl[i]
+            if i in varying and x["kind"] == "text":
+                vals = [_value(r[i]["text"]) for r in rows]
+                typ = "currency" if all(v["type"] == "currency" for v in vals) else "string"
+                base = _field_base(rows[0][i]["text"])
+                if not re.search(r"\d", rows[0][i]["text"]):
+                    base = "title" if "title" not in ftaken else "detail"
+                fname = st.unique(base, ftaken)
+                g["fields"].append({"name": fname, "type": typ, "code": vals[0].get("code")})
+                for r, v in zip(g["rows"], vals):
+                    r.append(v if typ == "currency" else {"type": "string", "value": v["value"]})
+                x["bind"] = {"scope": "item", "field": fname, "type": typ}
+            elif i in varying:
+                fname = st.unique("icon", ftaken)
+                g["fields"].append({"name": fname, "type": "icon"})
+                for r, rr in zip(g["rows"], rows):
+                    r.append({"type": "icon", "value": rr[i]["material"]})
+                x["bind"] = {"scope": "item", "field": fname, "type": "icon"}
+            elif x["kind"] == "text":
+                if not re.search(r"[A-Za-z0-9À-ÿ]", x["text"]):
+                    x["verbatim"] = True
+                elif any(b["kind"] == "button" and x in _leaves(b["content"]) for b in tmpl if b["kind"] == "button"):
+                    owner = next(b for b in tmpl if b["kind"] == "button" and x in _leaves(b["content"]))
+                    m = CALL_RE.match(owner.get("action") or "")
+                    hint = (_split_camel(m.group(1))[0] + ".button") if m else None
+                    x["key"] = st.key(x["text"].strip(), hint)
+                else:
+                    x["key"] = st.key(x["text"].strip())
+            elif x["kind"] == "button":
+                handle_button(x, item)
+        n["repeat"] = {"collection": coll, "item": item, "template": kids[0],
+                       "styleDiffers": len({_style_sig(k) for k in kids}) > 1}
+        if n["repeat"]["styleDiffers"]:
+            st.warnings.append(f"state: rows of {coll} differ in style; the template uses the first row")
+        st.groups.append(g)
+        return True
+
+    def walk(n: dict, in_shell: bool = False):
+        k = n["kind"]
+        if k == "text":
+            mark_text(n, "state", taken, st.fields, in_shell)
+        elif k == "button":
+            handle_button(n, None)
+            walk(n["content"], in_shell)
+        elif k == "box":
+            if not in_shell and (detect_tabs(n) or row_group(n)):
+                return
+            if n.get("id") and st.tabs:
+                for c in st.tabs["cases"]:
+                    if re.search(rf"\b{re.escape(c['arg'])}\b", n["id"].replace("-", " ")):
+                        n["tabCase"] = c["case"]
+            for c in n["children"]:
+                walk(c, in_shell)
+
+    walk(ir)
+    for o in ovs:
+        walk(o["node"], o["role"] in ("topBar", "bottomBar"))
+    # tab sections may precede detection in document order only if the picker comes later; re-scan ids
+    if st.tabs:
+        def ids(n):
+            if n["kind"] == "box":
+                if n.get("id") and "tabCase" not in n:
+                    for c in st.tabs["cases"]:
+                        if re.search(rf"\b{re.escape(c['arg'])}\b", n["id"].replace("-", " ")):
+                            n["tabCase"] = c["case"]
+                for c in n["children"]:
+                    ids(c)
+        ids(ir)
+    for f in st.fields:
+        f.setdefault("code", None)
+    ir["state"] = st
+    return st
+
+
+def _swift_str(s: str) -> str:
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _kt_str(s: str) -> str:
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$") + '"'
+
+
+def strings_catalog(st: StateModel, fmt: str = "xcstrings") -> str:
+    src = st.locale.split("_")[0]
+    if fmt == "android":
+        out = ['<?xml version="1.0" encoding="utf-8"?>', "<resources>"]
+        for k, v in st.keys.items():
+            esc = v.replace("&", "&amp;").replace("<", "&lt;").replace("'", "\\'").replace('"', '\\"')
+            out.append(f'    <string name="{android_res(k)}">{esc}</string>')
+        return "\n".join(out + ["</resources>", ""])
+    cat = {"sourceLanguage": src, "version": "1.0", "strings": {
+        k: {"extractionState": "manual", "localizations": {src: {"stringUnit": {"state": "translated", "value": v}}}}
+        for k, v in st.keys.items()}}
+    return json.dumps(cat, indent=2, ensure_ascii=False) + "\n"
+
+
+def android_res(key: str) -> str:
+    return "_".join("_".join(_split_camel(p)) for p in key.split("."))
 
 
 class SwiftEmitter:
@@ -467,7 +773,168 @@ class SwiftEmitter:
                 out.append(f".padding({name}, {self.num(mg[side])})  // margin")
         return out
 
+    # ------------------------------------------------------------ state mode (Swift)
+    st = None
+    item_var = None
+
     def emit(self, n: dict, ind: str = "") -> list[str]:
+        st = self.st
+        if not st:
+            return self.emit_plain(n, ind)
+        k = n["kind"]
+        if k == "box" and n.get("tabCase") and not n.get("_inTab"):
+            n["_inTab"] = True
+            out = [f"{ind}if tab == .{n['tabCase']} {{"] + self.emit(n, ind + "    ") + [f"{ind}}}"]
+            del n["_inTab"]
+            return out
+        if k == "box" and n.get("picker"):
+            return [f"{ind}Picker(selection: $tab) {{",
+                    f"{ind}    ForEach(Tab.allCases) {{ Text($0.title).tag($0) }}",
+                    f"{ind}}} label: {{",
+                    f"{ind}    EmptyView()",
+                    f"{ind}}}",
+                    f"{ind}.pickerStyle(.segmented)"]
+        if k == "box" and n.get("repeat"):
+            r = n["repeat"]
+            var = r["item"][:1].lower() + r["item"][1:]
+            prev, self.item_var = self.item_var, var
+            body = self.emit(r["template"], ind + "    ")
+            self.item_var = prev
+            note = [f"{ind}// TODO rows differ in style in the export; this uses the first row"] if r["styleDiffers"] else []
+            return note + [f"{ind}ForEach(state.{r['collection']}) {{ {var} in"] + body + [f"{ind}}}"]
+        lines = self.emit_plain(n, ind)
+        if k == "text":
+            if b := n.get("bind"):
+                src = f"{self.item_var}.{b['field']}" if b["scope"] == "item" and self.item_var else f"state.{b['field']}"
+                lines[0] = f"{ind}Text({self.money_expr(src) if b['type'] == 'currency' else src})"
+            elif n.get("key"):
+                lines[0] = f'{ind}Text("{n["key"]}")'
+            elif n.get("verbatim"):
+                lines[0] = f"{ind}Text(verbatim: {_swift_str(n['text'])})"
+            if n["style"].get("uppercase") and not n.get("verbatim"):
+                lines.insert(1, f"{ind}    .textCase(.uppercase)")
+        elif k == "icon" and (b := n.get("bind")):
+            lines[0] = f"{ind}Image(systemName: {self.item_var}.{b['field']})"
+        elif k == "button":
+            act = None
+            if h := n.get("handler"):
+                if h.get("item"):
+                    act = f"{h['callback']}({self.item_var})"
+                elif "arg" in h:
+                    act = f"{h['callback']}({_swift_str(h['arg'])})"
+                else:
+                    act = f"{h['callback']}()"
+            elif f := n.get("flag"):
+                ov = next(o for o in self.ir_overlays if o["id"] == f["overlay"])
+                act = f"{self.state_name(ov)} = {'true' if f['value'] else 'false'}"
+            if act:
+                lines[0] = f"{ind}Button {{ {act} }} label: {{"
+            if n.get("label"):
+                for i, l in enumerate(lines):
+                    if l.startswith(f"{ind}.accessibilityLabel("):
+                        lines[i] = f'{ind}.accessibilityLabel("{st.key(n["label"], _lower_camel(_words(n["label"])[:3]))}")'
+        return lines
+
+    def money_expr(self, src: str) -> str:
+        fmt = (self.st.types.get("currency") or {}).get("swiftFormat")
+        return fmt.replace("{v}", src) if fmt else f"money({src})"
+
+    def swift_type(self, f: dict) -> str:
+        if f["type"] == "currency":
+            return (self.st.types.get("currency") or {}).get("swiftType", "Int")
+        return "String"
+
+    def swift_value(self, f: dict, v: dict) -> str:
+        if f["type"] == "currency":
+            t = (self.st.types.get("currency") or {}).get("swiftSample")
+            return t.replace("{cents}", str(v["cents"])) if t else str(v["cents"])
+        if f["type"] == "icon":
+            return _swift_str(self.map.get("icons", {}).get(v["value"]) or self.ICONS.get(v["value"], "questionmark.square.dashed"))
+        return _swift_str(v["value"])
+
+    def screen_state(self, ir: dict, name: str) -> str:
+        st = self.st
+        self.ir_overlays = ir.get("overlays", [])
+        body = self.emit(ir, "        ")
+        ovs = self.ir_overlays
+        for o in ovs:
+            i = "        "
+            if o["role"] in ("topBar", "bottomBar"):
+                edge = "top" if o["role"] == "topBar" else "bottom"
+                if o["role"] == "bottomBar":
+                    body.append(f"{i}// bottom nav: in the app this is the TabView's tab bar")
+                body.append(f"{i}.safeAreaInset(edge: .{edge}, spacing: 0) {{")
+                body += self.emit(o["node"], i + "    ")
+                body.append(f"{i}}}")
+            elif o["role"] == "toast":
+                body += [f"{i}.overlay(alignment: .bottom) {{", f"{i}    if {self.state_name(o)} {{"]
+                body += self.emit(o["node"], i + "        ")
+                body += [f"{i}    }}", f"{i}}}"]
+            else:
+                body.append(f"{i}.sheet(isPresented: ${self.state_name(o)}) {{")
+                body += self.emit(o["node"], i + "    ")
+                body.append(f"{i}}}")
+        T = st.type
+        uses_money = any("money(" in l for l in body)
+        out = ["import SwiftUI", "",
+               "// Generated by stitch-native (state mode) from a Stitch export. Do not hand-edit; regenerate.",
+               "// Stateless view: all data comes in through `state`, all actions go out through callbacks.", "",
+               f"struct {T}: Equatable {{"]
+        for g in st.groups:
+            out.append(f"    struct {g['item']}: Identifiable, Equatable {{")
+            out.append("        let id: UUID")
+            out += [f"        let {f['name']}: {self.swift_type(f)}" + ("  // cents" if f["type"] == "currency" and self.swift_type(f) == "Int" else "") for f in g["fields"]]
+            out.append("    }")
+            out.append("")
+        for g in st.groups:
+            out.append(f"    var {g['collection']}: [{g['item']}]")
+        out += [f"    var {f['name']}: {self.swift_type(f)}" + ("  // cents" if f["type"] == "currency" and self.swift_type(f) == "Int" else "") for f in st.fields]
+        out += ["}", "", f"extension {T} {{", "    /// Sample data copied from the export; use it in previews and tests.",
+                f"    static let sample = {T}("]
+        args = []
+        for g in st.groups:
+            rows = []
+            for r in g["rows"]:
+                vals = ", ".join(f"{f['name']}: {self.swift_value(f, v)}" for f, v in zip(g["fields"], r))
+                rows.append(f"            .init(id: UUID(), {vals})")
+            args.append(f"        {g['collection']}: [\n" + ",\n".join(rows) + "\n        ]")
+        args += [f"        {f['name']}: {self.swift_value(f, f)}" for f in st.fields]
+        out += [",\n".join(args), "    )", "}", ""]
+        out.append(f"struct {name}: View {{")
+        out.append(f"    let state: {T}")
+        cbs = []
+        for cb, c in st.callbacks.items():
+            sig = f"({T}.{c['item']}) -> Void" if c.get("item") else ("(String) -> Void" if c.get("arg") else "() -> Void")
+            dflt = "{ _ in }" if c.get("item") or c.get("arg") else "{}"
+            cbs.append((cb, sig, dflt))
+            out.append(f"    var {cb}: {sig} = {dflt}")
+        if st.tabs:
+            out.append(f"    @State private var tab: Tab = .{st.tabs['default']}")
+        for o in ovs:
+            if o["role"] in ("sheet", "toast"):
+                out.append(f"    @State private var {self.state_name(o)} = false")
+        out += ["", "    init(", f"        state: {T}" + ("," if cbs else "")]
+        out += [f"        {cb}: @escaping {sig} = {d}" + ("," if j < len(cbs) - 1 else "") for j, (cb, sig, d) in enumerate(cbs)]
+        out += ["    ) {", "        self.state = state"] + [f"        self.{cb} = {cb}" for cb, _, _ in cbs] + ["    }", ""]
+        out += ["    var body: some View {"] + body + ["    }"]
+        if uses_money:
+            loc = st.locale
+            code = next((f["code"] for f in st.fields if f.get("code")), None) or next((f["code"] for g in st.groups for f in g["fields"] if f.get("code")), "EUR")
+            out += ["", "    private func money(_ cents: Int) -> String {",
+                    f'        (Decimal(cents) / 100).formatted(.currency(code: "{code}").locale(Locale(identifier: "{loc}")))', "    }"]
+        out.append("}")
+        if st.tabs:
+            out += ["", f"private extension {name} {{", "    enum Tab: String, CaseIterable, Identifiable {",
+                    "        " + "case " + ", ".join(c["case"] for c in st.tabs["cases"]), "", "        var id: Self { self }", "",
+                    "        var title: LocalizedStringKey {", "            switch self {"]
+            out += [f'            case .{c["case"]}: "{c["key"]}"' for c in st.tabs["cases"]]
+            out += ["            }", "        }", "    }", "}"]
+        out += ["", '#Preview("Light") {', f"    {name}(state: .sample)", "        .preferredColorScheme(.light)", "}", "",
+                '#Preview("Dark") {', f"    {name}(state: .sample)", "        .preferredColorScheme(.dark)", "}", "",
+                '#Preview("Large type") {', f"    {name}(state: .sample)", "        .environment(\\.dynamicTypeSize, .accessibility3)", "}", ""]
+        return "\n".join(out)
+
+    def emit_plain(self, n: dict, ind: str = "") -> list[str]:
         k = n["kind"]
         if k == "text":
             s = n["style"]
@@ -567,6 +1034,9 @@ class SwiftEmitter:
         return "show" + c[:1].upper() + c[1:]
 
     def screen(self, ir: dict, name: str) -> str:
+        self.st = ir.get("state")
+        if self.st:
+            return self.screen_state(ir, name)
         body = self.emit(ir, "        ")
         ovs = ir.get("overlays", [])
         state = [f"    @State private var {self.state_name(o)} = false" for o in ovs if o["role"] in ("sheet", "toast")]
@@ -696,7 +1166,162 @@ class ComposeEmitter(SwiftEmitter):
             return [f"{ind}{name}()"]
         return [f"{ind}{name}("] + [f"{ind}    {a}," for a in args] + [f"{ind})"]
 
+    # ------------------------------------------------------------ state mode (Compose)
     def emit(self, n: dict, ind: str = "", extra: list[str] | None = None) -> list[str]:
+        st = self.st
+        if not st:
+            return self.emit_plain(n, ind, extra)
+        k = n["kind"]
+        if k == "box" and n.get("tabCase") and not n.get("_inTab"):
+            n["_inTab"] = True
+            out = [f"{ind}if (tab == {st.name}Tab.{self.kt_case(n['tabCase'])}) {{"] + self.emit(n, ind + "    ", extra) + [f"{ind}}}"]
+            del n["_inTab"]
+            return out
+        if k == "box" and n.get("picker"):
+            m = len(st.tabs["cases"])
+            return [f"{ind}SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {{",
+                    f"{ind}    {st.name}Tab.entries.forEachIndexed {{ index, option ->",
+                    f"{ind}        SegmentedButton(",
+                    f"{ind}            selected = tab == option,",
+                    f"{ind}            onClick = {{ tab = option }},",
+                    f"{ind}            shape = SegmentedButtonDefaults.itemShape(index = index, count = {m}),",
+                    f"{ind}        ) {{ Text(stringResource(option.title)) }}",
+                    f"{ind}    }}",
+                    f"{ind}}}"]
+        if k == "box" and n.get("repeat"):
+            r = n["repeat"]
+            var = r["item"][:1].lower() + r["item"][1:]
+            prev, self.item_var = self.item_var, var
+            body = self.emit(r["template"], ind + "        ", extra)
+            self.item_var = prev
+            note = [f"{ind}// TODO rows differ in style in the export; this uses the first row"] if r["styleDiffers"] else []
+            return note + [f"{ind}state.{r['collection']}.forEach {{ {var} ->", f"{ind}    key({var}.id) {{"] + body + [f"{ind}    }}", f"{ind}}}"]
+        if k == "text" and (n.get("bind") or n.get("key")):
+            s = n["style"]
+            if b := n.get("bind"):
+                src = f"{self.item_var}.{b['field']}" if b["scope"] == "item" and self.item_var else f"state.{b['field']}"
+                expr = f"money({src})" if b["type"] == "currency" else src
+            else:
+                expr = f"stringResource(R.string.{android_res(n['key'])})"
+            if s.get("uppercase"):
+                expr += ".uppercase()"
+            mod = self.mod_chain(n.get("box", {}), extra)
+            return self.call(ind, "Text", [f"text = {expr}"] + ([f"modifier = {mod}"] if mod else []) + self.text_style(s))
+        if k == "button" and (n.get("handler") or n.get("flag")):
+            if h := n.get("handler"):
+                act = f"{h['callback']}({self.item_var})" if h.get("item") else (
+                    f"{h['callback']}({_kt_str(h['arg'])})" if "arg" in h else f"{h['callback']}()")
+            else:
+                f = n["flag"]
+                ov = next(o for o in self.ir_overlays if o["id"] == f["overlay"])
+                act = f"{self.state_name(ov)} = {'true' if f['value'] else 'false'}"
+            extra2 = list(extra or []) + ["clickable { " + act + " }"]
+            if n.get("label"):
+                key = st.key(n["label"], _lower_camel(_words(n["label"])[:3]))
+                extra2.append("semantics { contentDescription = " + f"stringResource(R.string.{android_res(key)})" + " }")
+            return self.emit(n["content"], ind, extra2)
+        return self.emit_plain(n, ind, extra)
+
+    @staticmethod
+    def kt_case(c: str) -> str:
+        return "".join(p[:1].upper() + p[1:] for p in _split_camel(c)) if c else c
+
+    def kt_type(self, f: dict) -> str:
+        return "Long" if f["type"] == "currency" else "String"
+
+    def kt_value(self, f: dict, v: dict) -> str:
+        if f["type"] == "currency":
+            return f"{v['cents']}L"
+        return _kt_str(v["value"])
+
+    def screen_state(self, ir: dict, name: str) -> str:
+        st = self.st
+        self.ir_overlays = ovs = ir.get("overlays", [])
+        T = st.type
+        imports = ["androidx.compose.foundation.*", "androidx.compose.foundation.layout.*",
+                   "androidx.compose.foundation.shape.*", "androidx.compose.material.icons.Icons",
+                   "androidx.compose.material.icons.outlined.*", "androidx.compose.material3.*",
+                   "androidx.compose.runtime.*", "androidx.compose.ui.Alignment",
+                   "androidx.compose.ui.Modifier", "androidx.compose.ui.draw.clip",
+                   "androidx.compose.ui.graphics.*", "androidx.compose.ui.layout.ContentScale",
+                   "androidx.compose.ui.res.stringResource", "androidx.compose.ui.semantics.*",
+                   "androidx.compose.ui.text.font.FontWeight", "androidx.compose.ui.text.style.*",
+                   "androidx.compose.ui.tooling.preview.Preview", "androidx.compose.ui.unit.dp",
+                   "androidx.compose.ui.unit.sp", "androidx.compose.ui.window.Dialog",
+                   "android.content.res.Configuration", "androidx.annotation.StringRes",
+                   "coil3.compose.AsyncImage", "java.text.NumberFormat", "java.util.Currency", "java.util.Locale"]
+        imports.sort()
+        bars = {o["role"]: o for o in ovs if o["role"] in ("topBar", "bottomBar")}
+        pops = [o for o in ovs if o["role"] in ("sheet", "toast")]
+        cbs = []
+        for cb, c in st.callbacks.items():
+            sig = f"({T}.{c['item']}) -> Unit" if c.get("item") else ("(String) -> Unit" if c.get("arg") else "() -> Unit")
+            cbs.append((cb, sig, "{}"))
+        body = []
+        if st.tabs:
+            body.append(f"    var tab by rememberSaveable {{ mutableStateOf({st.name}Tab.{self.kt_case(st.tabs['default'])}) }}")
+        body += [f"    var {self.state_name(o)} by rememberSaveable {{ mutableStateOf(false) }}" for o in pops]
+        body.append("    Scaffold(")
+        body.append("        modifier = modifier,")
+        for role in ("topBar", "bottomBar"):
+            if role in bars:
+                body.append(f"        {role} = {{")
+                body += self.emit(bars[role]["node"], "            ")
+                body.append("        },")
+        body += ["    ) { innerPadding ->", "        Box(modifier = Modifier.padding(innerPadding)) {"]
+        body += self.emit(ir, "            ")
+        for o in pops:
+            v = self.state_name(o)
+            body.append(f"            if ({v}) {{")
+            if o["role"] == "sheet":
+                body.append(f"                Dialog(onDismissRequest = {{ {v} = false }}) {{")
+            else:
+                body.append("                Box(modifier = Modifier.align(Alignment.BottomCenter)) {")
+            body += self.emit(o["node"], "                    ")
+            body += ["                }", "            }"]
+        body += ["        }", "    }"]
+        uses_money = any("money(" in l for l in body)
+        out = [f"import {i}" for i in imports] + ["",
+               "// Generated by stitch-native (state mode) from a Stitch export. Do not hand-edit; regenerate.",
+               "// Stateless screen: data comes in through `state`, actions go out through lambdas (state hoisting).", "",
+               "@Immutable", f"data class {T}("]
+        props = [f"    val {g['collection']}: List<{g['item']}>," for g in st.groups]
+        props += [f"    val {f['name']}: {self.kt_type(f)}," + ("  // cents" if f["type"] == "currency" else "") for f in st.fields]
+        out += props + [") {"]
+        for g in st.groups:
+            out += ["    @Immutable", f"    data class {g['item']}(", "        val id: String,"]
+            out += [f"        val {f['name']}: {self.kt_type(f)}," + ("  // cents" if f["type"] == "currency" else "") for f in g["fields"]]
+            out.append("    )")
+        out += ["", "    companion object {", "        /** Sample data copied from the export; use it in previews and tests. */",
+                f"        val sample = {T}("]
+        for g in st.groups:
+            out.append(f"            {g['collection']} = listOf(")
+            for j, r in enumerate(g["rows"]):
+                vals = ", ".join(f"{f['name']} = {self.kt_value(f, v)}" for f, v in zip(g["fields"], r))
+                out.append(f'                {g["item"]}(id = "{j + 1}", {vals}),')
+            out.append("            ),")
+        out += [f"            {f['name']} = {self.kt_value(f, f)}," for f in st.fields]
+        out += ["        )", "    }", "}", ""]
+        if st.tabs:
+            out.append(f"enum class {st.name}Tab(@StringRes val title: Int) {{")
+            out += [f"    {self.kt_case(c['case'])}(R.string.{android_res(c['key'])})," for c in st.tabs["cases"]]
+            out += ["}", ""]
+        params = [f"    state: {T},"] + [f"    {cb}: {sig} = {d}," for cb, sig, d in cbs] + ["    modifier: Modifier = Modifier,"]
+        out += ["@OptIn(ExperimentalMaterial3Api::class)", "@Composable", f"fun {name}("] + params + [") {"] + body + ["}"]
+        if uses_money:
+            code = next((f["code"] for f in st.fields if f.get("code")), None) or next(
+                (f["code"] for g in st.groups for f in g["fields"] if f.get("code")), "EUR")
+            out += ["", "private fun money(cents: Long): String =",
+                    f'    NumberFormat.getCurrencyInstance(Locale.forLanguageTag("{st.locale.replace("_", "-")}"))',
+                    f'        .apply {{ currency = Currency.getInstance("{code}") }}',
+                    "        .format(cents / 100.0)"]
+        out += ["", '@Preview(name = "Light", showBackground = true)',
+                '@Preview(name = "Dark", showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)',
+                '@Preview(name = "Large font", showBackground = true, fontScale = 2f)',
+                "@Composable", f"private fun {name}Preview() {{", "    MaterialTheme {", f"        {name}(state = {T}.sample)", "    }", "}", ""]
+        return "\n".join(out)
+
+    def emit_plain(self, n: dict, ind: str = "", extra: list[str] | None = None) -> list[str]:
         k = n["kind"]
         if k == "text":
             s = n["style"]
@@ -767,6 +1392,9 @@ class ComposeEmitter(SwiftEmitter):
         return lines + [f"{ind}}}"]
 
     def screen(self, ir: dict, name: str) -> str:
+        self.st = ir.get("state")
+        if self.st:
+            return self.screen_state(ir, name)
         ovs = ir.get("overlays", [])
         imports = ["androidx.compose.foundation.*", "androidx.compose.foundation.layout.*",
                    "androidx.compose.foundation.shape.*", "androidx.compose.material.icons.Icons",
@@ -929,6 +1557,8 @@ def main(argv):
         print(theme_kotlin(th))
     elif cmd in ("swiftui", "compose"):
         em = (SwiftEmitter if cmd == "swiftui" else ComposeEmitter)(th, mapping)
+        if "--mode" in argv and argv[argv.index("--mode") + 1] == "state":
+            extract_state(ir, mapping, name, "swift" if cmd == "swiftui" else "kotlin")
         print(em.screen(ir, name))
         rep = sorted(set(em.literals))
         sys.stderr.write(f"warnings: {len(warn)}  off-token literals: {rep}\n")
