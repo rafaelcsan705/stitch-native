@@ -37,6 +37,8 @@ TW_WEIGHTS = {
     "semibold": 600, "bold": 700, "extrabold": 800, "black": 900,
 }
 TW_RADIUS = {"": 4, "sm": 2, "md": 6, "lg": 8, "xl": 12, "2xl": 16, "3xl": 24, "full": 9999}
+MAX_W = {"xs": 320, "sm": 384, "md": 448, "lg": 512, "xl": 576, "2xl": 672, "3xl": 768,  # Tailwind max-w-* (px)
+         "4xl": 896, "5xl": 1024, "6xl": 1152, "7xl": 1280}
 
 
 def parse_tailwind_config(html: str) -> dict:
@@ -181,6 +183,8 @@ def resolve_classes(classes: list[str], style: str, th: Theme, warn: list) -> di
                 s["pad"][side] = v
         elif m := re.fullmatch(r"(m|mx|my|mt|mb|ml|mr)-(.+)", c):
             if m.group(2) == "auto":
+                if m.group(1) in ("m", "mx"):
+                    s["centerX"] = True
                 continue
             v = th.space(m.group(2))
             sides = {"m": "tblr", "mx": "lr", "my": "tb", "mt": "t", "mb": "b", "ml": "l", "mr": "r"}[m.group(1)]
@@ -191,6 +195,8 @@ def resolve_classes(classes: list[str], style: str, th: Theme, warn: list) -> di
             s[key] = "fill" if m.group(2) == "full" else th.space(m.group(2))
         elif m := re.fullmatch(r"max-w-\[(.+)\]", c):
             s["maxWidth"] = to_px(m.group(1))
+        elif c.startswith("max-w-") and c[6:] in MAX_W:
+            s["maxWidth"] = MAX_W[c[6:]]
         elif m := re.fullmatch(r"rounded(?:-([lrtb]))?(?:-(.+))?", c):
             key = m.group(2) or ""
             if key.startswith("["):
@@ -1098,6 +1104,8 @@ class SwiftEmitter:
         for side, name in (("t", ".top"), ("b", ".bottom"), ("l", ".leading"), ("r", ".trailing")):
             if mg.get(side):
                 out.append(f".padding({name}, {self.num(mg[side])})  // margin")
+        if s.get("centerX") and (s.get("maxWidth") or isinstance(w, float)):
+            out.append(".frame(maxWidth: .infinity)  // mx-auto")
         return out
 
     # ------------------------------------------------------------ state mode (Swift)
@@ -1595,7 +1603,12 @@ class ComposeEmitter(SwiftEmitter):
             m.append("padding(" + ", ".join(f"{n} = {self.num(mg[k])}.dp" for k, n in
                      (("t", "top"), ("b", "bottom"), ("l", "start"), ("r", "end")) if mg.get(k)) + ")")
         w, h = s.get("width"), s.get("height")
-        if w == "fill":
+        center = s.get("centerX") and (s.get("maxWidth") or isinstance(w, float))
+        if center:  # mx-auto: take the row, then centre the constrained child in it
+            if not m or m[-1] != "fillMaxWidth()":
+                m.append("fillMaxWidth()")
+            m.append("wrapContentWidth(Alignment.CenterHorizontally)")
+        if w == "fill" and not center:
             m.append("fillMaxWidth()")
         elif isinstance(w, float):
             m.append(f"width({self.num(w)}.dp)")
@@ -1603,6 +1616,8 @@ class ComposeEmitter(SwiftEmitter):
             m.append(f"height({self.num(h)}.dp)")
         if s.get("maxWidth"):
             m.append(f"widthIn(max = {self.num(s['maxWidth'])}.dp)")
+            if center and not isinstance(w, float):
+                m.append("fillMaxWidth()")
         sh = self.shape(s)
         if "border" in s and "divider" not in s:
             col = self.color(s["border"].get("color") or {"hex": "3c4a3e", "token": "outline-variant", "alpha": None})
@@ -2233,6 +2248,8 @@ img { display: block; max-width: 100%%; }
             d.append(f"max-width: {self.px(s['maxWidth'])}")
         d += self.spacing("padding", s.get("pad", {}))
         d += self.spacing("margin", s.get("margin", {}))
+        if s.get("centerX"):
+            d += ["margin-left: auto", "margin-right: auto"]
         shape = False
         if (r := s.get("radius")) is not None:
             d.append(f"border-radius: {self.px(min(r, 9999))}")

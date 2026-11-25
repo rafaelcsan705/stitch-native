@@ -472,6 +472,7 @@ struct OrdersListView: View {
             .padding(16)
             .frame(maxWidth: .infinity)
             .background(Color.clear)
+            .frame(maxWidth: .infinity)  // mx-auto
         }
         .overlay(alignment: .bottom) {
             if showToastRepeat {
@@ -491,7 +492,9 @@ struct OrdersListView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
+                .frame(maxWidth: 384)
                 .background(StitchTheme.primary, in: Capsule())
+                .frame(maxWidth: .infinity)  // mx-auto
             }
         }
         // bottom nav: in the app this is the TabView's tab bar
@@ -593,8 +596,10 @@ struct OrdersListView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 8)
                 .padding(.trailing, 8)
+                .frame(maxWidth: 448)
                 .frame(height: 64)
                 .background(StitchTheme.surfaceContainerLowest.opacity(0.9), in: Capsule())
+                .frame(maxWidth: .infinity)  // mx-auto
             }
             .padding(.leading, 20)
             .padding(.trailing, 20)
@@ -648,4 +653,3 @@ private extension OrdersListView {
     OrdersListView(state: .sample)
         .environment(\.dynamicTypeSize, .accessibility3)
 }
-

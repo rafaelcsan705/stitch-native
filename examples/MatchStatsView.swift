@@ -201,6 +201,7 @@ struct MatchStatsView: View {
             .padding(.leading, 16)
             .padding(.trailing, 16)
             .frame(maxWidth: 640)
+            .frame(maxWidth: .infinity)  // mx-auto
         }
         .background(StitchTheme.surface)
     }

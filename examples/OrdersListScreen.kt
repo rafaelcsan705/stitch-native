@@ -170,7 +170,7 @@ fun OrdersListScreen(
         },
         bottomBar = {
             Column(modifier = Modifier.padding(bottom = 12.dp).padding(start = 20.dp, end = 20.dp), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
-                Row(modifier = Modifier.height(64.dp).background(StitchTheme.surfaceContainerLowest.copy(alpha = 0.9f), CircleShape).padding(start = 8.dp, end = 8.dp), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
+                Row(modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally).height(64.dp).widthIn(max = 448.dp).fillMaxWidth().background(StitchTheme.surfaceContainerLowest.copy(alpha = 0.9f), CircleShape).padding(start = 8.dp, end = 8.dp), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.clickable { /* # */ }.padding(start = 4.dp, end = 4.dp), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
                             imageVector = Icons.Outlined.Home,
@@ -533,7 +533,7 @@ fun OrdersListScreen(
             }
             if (showPickupModal) {
                 Dialog(onDismissRequest = { showPickupModal = false }) {
-                    Column(modifier = Modifier.fillMaxWidth().fillMaxWidth().background(Color.Transparent).padding(16.dp), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
+                    Column(modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally).widthIn(max = 384.dp).fillMaxWidth().background(Color.Transparent).padding(16.dp), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
                         Column(modifier = Modifier.fillMaxWidth().background(StitchTheme.surfaceContainerLowest, RoundedCornerShape(12.dp)).padding(24.dp), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.CenterHorizontally) {
                             Box(modifier = Modifier.padding(bottom = 12.dp).width(48.dp).height(48.dp).background(StitchTheme.primaryFixed, CircleShape), contentAlignment = Alignment.Center) {
                                 Icon(
@@ -588,7 +588,7 @@ fun OrdersListScreen(
             }
             if (showToastRepeat) {
                 Box(modifier = Modifier.align(Alignment.BottomCenter)) {
-                    Row(modifier = Modifier.fillMaxWidth().background(StitchTheme.primary, CircleShape).padding(top = 12.dp, bottom = 12.dp, start = 16.dp, end = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Row(modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally).widthIn(max = 384.dp).fillMaxWidth().background(StitchTheme.primary, CircleShape).padding(top = 12.dp, bottom = 12.dp, start = 16.dp, end = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Row(modifier = Modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 imageVector = Icons.Outlined.ShoppingBasket,
@@ -623,4 +623,3 @@ private fun OrdersListScreenPreview() {
         OrdersListScreen(state = OrdersListScreenState.sample)
     }
 }
-

@@ -21,7 +21,7 @@ import coil3.compose.AsyncImage
 @Composable
 fun MatchStatsScreen() {
     Column(modifier = Modifier.fillMaxSize().background(StitchTheme.surface).verticalScroll(rememberScrollState())) {
-        Column(modifier = Modifier.fillMaxWidth().widthIn(max = 640.dp).padding(top = 64.dp, bottom = 112.dp, start = 16.dp, end = 16.dp), verticalArrangement = Arrangement.spacedBy(20.dp), horizontalAlignment = Alignment.Start) {
+        Column(modifier = Modifier.fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally).widthIn(max = 640.dp).fillMaxWidth().padding(top = 64.dp, bottom = 112.dp, start = 16.dp, end = 16.dp), verticalArrangement = Arrangement.spacedBy(20.dp), horizontalAlignment = Alignment.Start) {
             Column(modifier = Modifier.fillMaxWidth().border(1.dp, Color(0xFF1E3A2D), RoundedCornerShape(20.dp)).background(Color(0xFF12241C), RoundedCornerShape(20.dp)).padding(14.dp), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
                 Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -200,4 +200,3 @@ fun MatchStatsScreen() {
 @Preview(backgroundColor = 0xFF0A1611, showBackground = true)
 @Composable
 private fun MatchStatsScreenPreview() = MatchStatsScreen()
-
