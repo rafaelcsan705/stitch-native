@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<!-- Trimmed copy of a Stitch export (screen "04.2 Jogo — Estatísticas e plantéis"): config + scoreboard + stats + one squad row. -->
+<html class="dark" lang="pt-PT"><head>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "background": "#0a1611",
+              "surface": "#0a1611",
+              "surface-container-low": "#121e19",
+              "surface-container": "#16221d",
+              "surface-container-high": "#202d27",
+              "surface-container-highest": "#2b3732",
+              "on-surface": "#d8e6dd",
+              "on-surface-variant": "#bbcbbb",
+              "outline-variant": "#3c4a3e",
+              "primary": "#53f493",
+              "primary-container": "#2bd77a",
+              "on-primary": "#00391b",
+              "secondary": "#b1cdbd",
+              "secondary-container": "#334c40",
+              "on-secondary": "#1d352a",
+              "error": "#ffb4ab"
+            },
+            borderRadius: { DEFAULT: "0.25rem", lg: "0.5rem", xl: "0.75rem", full: "9999px" },
+            spacing: {
+              gutter: "0.75rem", "space-lg": "1.25rem", margin: "1rem", "space-xl": "2rem",
+              "space-sm": "0.5rem", "space-md": "0.875rem", "space-xs": "0.25rem"
+            },
+            fontFamily: {
+              "label-numeric": ["Sora"], "display-score-mobile": ["Sora"], "body-md": ["Inter"],
+              "headline-md": ["Sora"], "headline-sm": ["Sora"], "body-sm": ["Inter"], "label-badge": ["Sora"]
+            },
+            fontSize: {
+              "label-numeric": ["14px", { lineHeight: "18px", letterSpacing: "0.02em", fontWeight: "600" }],
+              "display-score-mobile": ["38px", { lineHeight: "42px", letterSpacing: "-0.03em", fontWeight: "700" }],
+              "body-md": ["14px", { lineHeight: "20px", letterSpacing: "-0.005em", fontWeight: "400" }],
+              "headline-md": ["20px", { lineHeight: "26px", letterSpacing: "-0.01em", fontWeight: "600" }],
+              "headline-sm": ["16px", { lineHeight: "22px", letterSpacing: "0em", fontWeight: "600" }],
+              "body-sm": ["12px", { lineHeight: "16px", letterSpacing: "0em", fontWeight: "400" }],
+              "label-badge": ["11px", { lineHeight: "14px", letterSpacing: "0.06em", fontWeight: "700" }]
+            }
+          }
+        }
+      }
+    </script>
+</head>
+<body class="bg-surface text-on-surface font-body-md">
+<main class="max-w-[640px] mx-auto pt-16 pb-28 px-margin flex flex-col gap-space-lg">
+<div class="bg-[#12241C] border border-[#1E3A2D] rounded-[20px] p-space-md relative overflow-hidden">
+<div class="flex items-center justify-between mb-space-sm">
+<span class="text-label-badge font-label-badge text-on-surface-variant uppercase tracking-wider">Pavilhão Dr. Salvador Machado</span>
+<span class="px-2 py-0.5 rounded-full bg-surface-container-high text-on-surface-variant text-body-sm font-medium">Fim do Encontro</span>
+</div>
+<div class="grid grid-cols-7 items-center my-space-md">
+<div class="col-span-3 flex flex-col items-center text-center gap-space-xs">
+<div class="w-12 h-12 rounded-xl bg-surface-container-highest border border-outline-variant/50 flex items-center justify-center overflow-hidden p-1">
+<img class="w-full h-full object-contain" src="https://example.com/home.png"/>
+</div>
+<span class="font-headline-sm text-on-surface font-semibold text-sm leading-tight">FC Porto</span>
+</div>
+<div class="col-span-1 flex flex-col items-center justify-center">
+<div class="font-display-score-mobile text-on-surface tracking-tight">4 - 3</div>
+</div>
+<div class="col-span-3 flex flex-col items-center text-center gap-space-xs">
+<div class="w-12 h-12 rounded-xl bg-surface-container-highest border border-outline-variant/50 flex items-center justify-center overflow-hidden p-1">
+<img class="w-full h-full object-contain" src="https://example.com/away.png"/>
+</div>
+<span class="font-headline-sm text-on-surface font-semibold text-sm leading-tight">SL Benfica</span>
+</div>
+</div>
+</div>
+<section class="bg-[#12241C] border border-[#1E3A2D] rounded-[20px] p-space-lg flex flex-col gap-space-md">
+<div class="flex items-center justify-between pb-2 border-b border-[#1E3A2D]">
+<h2 class="font-headline-md text-on-surface text-base">Estatísticas do Jogo</h2>
+<span class="text-body-sm text-on-surface-variant font-label-numeric">Hóquei em Patins</span>
+</div>
+<div class="flex flex-col gap-1.5">
+<div class="flex justify-between items-center text-body-sm font-label-numeric">
+<span class="font-semibold text-on-surface">9</span>
+<span class="text-on-surface-variant font-medium">Remates à Baliza</span>
+<span class="font-semibold text-on-surface">8</span>
+</div>
+<div class="grid grid-cols-2 gap-1 h-2 w-full bg-surface-container-low rounded-full overflow-hidden p-0.5">
+<div class="bg-primary-container rounded-l-full" style="width: 53%;"></div>
+<div class="bg-secondary-container rounded-r-full" style="width: 47%;"></div>
+</div>
+</div>
+<div class="flex flex-col gap-1.5">
+<div class="flex justify-between items-center text-body-sm font-label-numeric">
+<span class="font-semibold text-error">9/10</span>
+<span class="text-on-surface-variant font-medium">Faltas de Equipa</span>
+<span class="font-semibold text-on-surface">8/10</span>
+</div>
+<div class="grid grid-cols-2 gap-1 h-2 w-full bg-surface-container-low rounded-full overflow-hidden p-0.5">
+<div class="bg-error rounded-l-full" style="width: 52%;"></div>
+<div class="bg-secondary-container rounded-r-full" style="width: 48%;"></div>
+</div>
+</div>
+</section>
+<div class="bg-[#12241C] border border-[#1E3A2D] rounded-[20px] p-space-md">
+<div class="py-2.5 flex items-center justify-between">
+<div class="flex items-center gap-3">
+<span class="w-6 text-center font-label-numeric text-primary font-bold text-xs">7</span>
+<div>
+<p class="font-medium text-on-surface text-sm">Gonçalo Alves</p>
+<span class="text-body-sm text-on-surface-variant">Avançado</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-primary-container text-on-primary text-xs font-bold font-label-numeric">2</span>
+</div>
+</div>
+</div>
+</main>
+</body></html>
