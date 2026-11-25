@@ -22,7 +22,7 @@ struct MatchStatsView: View {
                     .padding(.bottom, 8)  // margin
                     HStack(spacing: 0) {
                         VStack(alignment: .center, spacing: 4) {
-                            HStack(alignment: .center, spacing: 0) {
+                            ZStack {
                                 AsyncImage(url: URL(string: "https://example.com/home.png")) { $0.resizable().scaledToFit() } placeholder: { Color.clear }
                                     .frame(maxWidth: .infinity)
                             }
@@ -44,7 +44,7 @@ struct MatchStatsView: View {
                         }
                             .frame(maxWidth: .infinity)  // col-span 1/7
                         VStack(alignment: .center, spacing: 4) {
-                            HStack(alignment: .center, spacing: 0) {
+                            ZStack {
                                 AsyncImage(url: URL(string: "https://example.com/away.png")) { $0.resizable().scaledToFit() } placeholder: { Color.clear }
                                     .frame(maxWidth: .infinity)
                             }
@@ -70,7 +70,7 @@ struct MatchStatsView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(alignment: .center, spacing: 0) {
                         Text("Estatísticas do Jogo")
-                            .font(.system(size: 16, weight: .regular))
+                            .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(StitchTheme.onSurface)
                         Spacer(minLength: 0)
                         Text("Hóquei em Patins")
@@ -110,7 +110,8 @@ struct MatchStatsView: View {
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(2)
-                            .frame(height: 8, maxWidth: .infinity)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 8)
                             .background(StitchTheme.surfaceContainerLow, in: Capsule())
                         }
                         .frame(height: 8)
@@ -145,7 +146,8 @@ struct MatchStatsView: View {
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(2)
-                            .frame(height: 8, maxWidth: .infinity)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 8)
                             .background(StitchTheme.surfaceContainerLow, in: Capsule())
                         }
                         .frame(height: 8)
@@ -173,8 +175,8 @@ struct MatchStatsView: View {
                             }
                         }
                         Spacer(minLength: 0)
-                        HStack(alignment: .center, spacing: 8) {
-                            HStack(alignment: .center, spacing: 0) {
+                        ZStack {
+                            ZStack {
                                 Text("2")
                                     .font(.system(size: 12, weight: .bold))
                                     .foregroundStyle(StitchTheme.onPrimary)

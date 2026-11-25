@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""stitch-native prototype: Stitch HTML (Tailwind) -> IR (JSON) -> SwiftUI.
+"""stitch-native: Stitch HTML (Tailwind) -> IR (JSON) -> SwiftUI / Jetpack Compose.
 
 Usage:
   python3 stitch_native.py ir      <screen.html>              # print the IR
   python3 stitch_native.py swiftui <screen.html> [--map m.json] [--name ScreenView]
-  python3 stitch_native.py tokens  <screen.html>              # print Theme.swift from tailwind.config
+  python3 stitch_native.py compose <screen.html> [--map m.json] [--name Screen]
+  python3 stitch_native.py tokens  <screen.html>              # Theme.swift from tailwind.config
+  python3 stitch_native.py tokens-kotlin <screen.html>        # Theme.kt from tailwind.config
 
 Standard library only. Prototype: covers the Tailwind subset Stitch emits on mobile screens.
 """
@@ -316,9 +318,9 @@ class SwiftEmitter:
             ft = self.th.font_size[tok]
             size = size or ft["size"]
             weight = weight or ft["weight"]
-        elif (ftok := s.get("familyToken")) and ftok in self.th.font_size and not size:
+        elif (ftok := s.get("familyToken")) and ftok in self.th.font_size:
             ft = self.th.font_size[ftok]
-            size, weight = ft["size"], weight or ft["weight"]
+            size, weight = size or ft["size"], weight or ft["weight"]
         if size is None and weight is None:
             return None
         fmap = self.map.get("fonts", {})
@@ -347,17 +349,18 @@ class SwiftEmitter:
                         if side in pad:
                             out.append(f".padding({name}, {self.num(pad[side])})")
         w, h = s.get("width"), s.get("height")
-        frame = []
+        fixed, flex = [], []  # SwiftUI cannot mix fixed and flexible params in one .frame()
         if isinstance(w, float):
-            frame.append(f"width: {self.num(w)}")
+            fixed.append(f"width: {self.num(w)}")
         if isinstance(h, float):
-            frame.append(f"height: {self.num(h)}")
-        if w == "fill":
-            frame.append("maxWidth: .infinity")
-        if s.get("maxWidth"):
-            frame.append(f"maxWidth: {self.num(s['maxWidth'])}")
-        if frame:
-            out.append(f".frame({', '.join(frame)})")
+            fixed.append(f"height: {self.num(h)}")
+        if w == "fill" and not isinstance(w, float):
+            flex.append("maxWidth: .infinity")
+        elif s.get("maxWidth"):
+            flex.append(f"maxWidth: {self.num(s['maxWidth'])}")
+        for frame in (flex, fixed):
+            if frame:
+                out.append(f".frame({', '.join(frame)})")
         r = s.get("radius")
         shape = None
         if r is not None:
@@ -425,7 +428,10 @@ class SwiftEmitter:
             lines.append(f"{ind}}}")
             lines += [f"{ind}{m}" for m in self.modifiers(s, ind)]
             return lines
-        if layout == "row":
+        single = layout == "row" and len(kids) == 1 and s.get("justify") != "between"
+        if single:  # flex wrapper around one child (e.g. a centred logo) -> ZStack, no extra HStack
+            head = "ZStack" if s.get("align") in (None, "center") else "ZStack(alignment: .leading)"
+        elif layout == "row":
             al = {"center": ".center", "start": ".top", "end": ".bottom", "baseline": ".firstTextBaseline"}.get(s.get("align"), ".center")
             head = f"HStack(alignment: {al}, {spacing})"
         elif layout == "grid":
@@ -593,7 +599,10 @@ class ComposeEmitter(SwiftEmitter):
                 lines += self.emit(ch, ind + "    ")
             return lines + [f"{ind}}}"]
         extra = list(extra or [])
-        if layout in ("row", "grid"):
+        if layout == "row" and len(kids) == 1 and s.get("justify") != "between":
+            ca = "Alignment.Center" if s.get("align") in (None, "center") else "Alignment.CenterStart"
+            head = f"Box(modifier = {self.mod_chain(s, extra) or 'Modifier'}, contentAlignment = {ca})"
+        elif layout in ("row", "grid"):
             if layout == "row" and s.get("justify") == "between":
                 arr = "Arrangement.SpaceBetween"
                 extra.append("fillMaxWidth()")
@@ -698,5 +707,9 @@ def main(argv):
     return 0
 
 
-if __name__ == "__main__":
+def cli() -> None:
     sys.exit(main(sys.argv))
+
+
+if __name__ == "__main__":
+    cli()

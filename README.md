@@ -1,11 +1,35 @@
-# stitch-native
+<p align="center"><img src="assets/logo.svg" width="96" alt="stitch-native logo"></p>
+<h1 align="center">stitch-native</h1>
+<p align="center">Google Stitch screens → native <b>SwiftUI</b> and <b>Jetpack Compose</b>. CLI + MCP server.</p>
+<p align="center">
+<a href="https://github.com/rafaelcsan705/stitch-native/actions/workflows/ci.yml"><img src="https://github.com/rafaelcsan705/stitch-native/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+<img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
+<img src="https://img.shields.io/badge/MCP-stdio-8a63d2" alt="MCP">
+<img src="https://img.shields.io/badge/license-MIT-green" alt="MIT">
+</p>
 
-Convert [Google Stitch](https://stitch.withgoogle.com) screen exports (HTML + Tailwind) into native UI code:
+![From Stitch HTML to SwiftUI and Compose](assets/hero.svg)
 
-- **SwiftUI** (iOS 17+)
-- **Jetpack Compose** (Material 3)
+## Quick start
 
-No dependencies: a single Python 3.10+ file, standard library only.
+```bash
+uvx --from git+https://github.com/rafaelcsan705/stitch-native stitch-native swiftui screen.html > Screen.swift
+```
+
+## Add to your agent
+
+| Client | Config |
+|---|---|
+| Claude Code | `claude mcp add stitch-native -- uvx --from git+https://github.com/rafaelcsan705/stitch-native stitch-native-mcp` |
+| Claude Desktop / Cursor / VS Code | see JSON below |
+
+```json
+{ "mcpServers": { "stitch-native": {
+  "command": "uvx",
+  "args": ["--from", "git+https://github.com/rafaelcsan705/stitch-native", "stitch-native-mcp"] } } }
+```
+
+Tools: `stitch_to_native`, `stitch_to_swiftui`, `stitch_to_compose`, `stitch_tokens`, `stitch_ir` (source: `html`, `path` or `url`). Prompt: `convert_screen`. Resources: token-map and IR docs.
 
 ## How it works
 

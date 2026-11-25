@@ -2,20 +2,24 @@
 """MCP server (stdio, JSON-RPC 2.0) for stitch-native. Standard library only.
 
 Register in Claude Code:
-    claude mcp add stitch-native -- python3 /path/to/stitch_native_mcp.py
+    claude mcp add stitch-native -- uvx stitch-native-mcp
 """
 import json
 import sys
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import stitch_native as sn  # noqa: E402
 
 PROTOCOL = "2025-06-18"
+VERSION = "0.2.0"
 
 SRC = {
     "html": {"type": "string", "description": "Stitch screen HTML (the export, including the tailwind-config script)."},
     "path": {"type": "string", "description": "Path to a Stitch HTML file. Used when html is not given."},
+    "url": {"type": "string", "description": "HTTPS download URL of the screen HTML (e.g. htmlCode.downloadUrl from the Stitch MCP get_screen)."},
 }
 MAP = {"map": {"type": "object", "description": 'Token map: {"colors": {token|#hex: expr}, "fonts": {token: expr}}.'}}
 NAME = {"name": {"type": "string", "description": "Generated view/composable name.", "default": "StitchScreen"}}
@@ -32,18 +36,79 @@ TOOLS = [
 ]
 
 
+TOOLS.append({"name": "stitch_to_native",
+              "description": "Convert one Stitch screen to SwiftUI and Jetpack Compose in one call, plus the theme files.",
+              "inputSchema": {"type": "object", "properties": {**SRC, **NAME, **MAP}}})
+
+MAX_BYTES = 5_000_000
+
+
+def fetch(url: str) -> str:
+    u = urllib.parse.urlparse(url)
+    if u.scheme != "https" or not u.netloc:
+        raise ValueError("Only https:// URLs are allowed.")
+    req = urllib.request.Request(url, headers={"User-Agent": f"stitch-native/{VERSION}"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        data = r.read(MAX_BYTES + 1)
+    if len(data) > MAX_BYTES:
+        raise ValueError("Screen HTML is larger than 5 MB.")
+    return data.decode("utf-8", errors="replace")
+
+
 def load_html(a: dict) -> str:
     if a.get("html"):
         return a["html"]
     if a.get("path"):
         return Path(a["path"]).expanduser().read_text(encoding="utf-8")
-    raise ValueError("Provide 'html' or 'path'.")
+    if a.get("url"):
+        return fetch(a["url"])
+    raise ValueError("Provide 'html', 'path' or 'url'.")
+
+
+TOKEN_MAP_DOC = json.dumps({
+    "colors": {"surface": "DS.Colors.background", "#12241c": "DS.Colors.card"},
+    "fonts": {"headline-md": ".title3.weight(.semibold)"},
+}, indent=2)
+IR_DOC = """stitch-native IR: a tree of nodes.
+box   {kind, tag, style, children}  style: layout row|column|grid, gap, pad{t,b,l,r}, bg, border, radius, width, height, align, justify, cols
+text  {kind, text, style, box}       style: fontToken, familyToken, fontSize, weight, color, uppercase, textAlign
+icon  {kind, material}               Material Symbols name, mapped to SF Symbols / Icons.*
+image {kind, src, style}
+Colours are {hex, token, alpha}. Use stitch_to_ir to see a real tree."""
+RESOURCES = {
+    "stitch-native://docs/token-map": ("Token map example", "application/json", TOKEN_MAP_DOC),
+    "stitch-native://docs/ir": ("IR format", "text/plain", IR_DOC),
+}
+PROMPTS = {
+    "convert_screen": {
+        "description": "Convert a Stitch screen into native code that uses your own design system.",
+        "arguments": [
+            {"name": "screen", "description": "Stitch screen: file path, download URL, or 'project/screen' id", "required": True},
+            {"name": "platform", "description": "swiftui, compose or both", "required": False},
+        ],
+        "text": ("Convert the Stitch screen {screen} to {platform}.\n"
+                 "1. If it is a Stitch project/screen id, call the Stitch MCP get_screen and use htmlCode.downloadUrl as url.\n"
+                 "2. Read this project's design system (colours, fonts) and build a token map (see resource stitch-native://docs/token-map).\n"
+                 "3. Call stitch_to_native (or stitch_to_swiftui / stitch_to_compose) with that map.\n"
+                 "4. Replace every off-token literal in the report with the closest design-system token, wire real data, and put strings in localisation."),
+    },
+}
 
 
 def call_tool(name: str, a: dict) -> str:
     th, ir, warn = sn.parse(load_html(a))
     if name == "extract_tokens":
         return sn.theme_kotlin(th) if a.get("platform") == "compose" else sn.theme_swift(th)
+    if name == "stitch_to_native":
+        out = []
+        for cls, lang in ((sn.SwiftEmitter, "swift"), (sn.ComposeEmitter, "kotlin")):
+            em = cls(th, a.get("map") or {})
+            code = em.screen(ir, a.get("name") or "StitchScreen")
+            out.append(f"```{lang}\n{code}\n```\noff-token literals: {sorted(set(em.literals))}")
+        out.append(f"```swift\n{sn.theme_swift(th)}\n```")
+        out.append(f"```kotlin\n{sn.theme_kotlin(th)}\n```")
+        out += [f"warning: {w}" for w in sorted(set(warn))]
+        return "\n\n".join(out)
     if name == "stitch_to_ir":
         return json.dumps(ir, indent=1, ensure_ascii=False)
     if name in ("stitch_to_swiftui", "stitch_to_compose"):
@@ -61,7 +126,8 @@ def handle(msg: dict):
         return None  # notification
     if method == "initialize":
         res = {"protocolVersion": msg.get("params", {}).get("protocolVersion", PROTOCOL),
-               "capabilities": {"tools": {}}, "serverInfo": {"name": "stitch-native", "version": "0.1.0"}}
+               "capabilities": {"tools": {}, "prompts": {}, "resources": {}},
+               "serverInfo": {"name": "stitch-native", "version": VERSION}}
     elif method == "tools/list":
         res = {"tools": TOOLS}
     elif method == "tools/call":
@@ -70,6 +136,24 @@ def handle(msg: dict):
             res = {"content": [{"type": "text", "text": call_tool(p.get("name"), p.get("arguments") or {})}]}
         except Exception as e:  # tool errors are returned, not raised
             res = {"content": [{"type": "text", "text": f"Error: {e}"}], "isError": True}
+    elif method == "prompts/list":
+        res = {"prompts": [{"name": k, "description": v["description"], "arguments": v["arguments"]} for k, v in PROMPTS.items()]}
+    elif method == "prompts/get":
+        p = msg.get("params", {})
+        pr = PROMPTS.get(p.get("name"))
+        if not pr:
+            return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32602, "message": "Unknown prompt"}}
+        args = {"platform": "both", **(p.get("arguments") or {})}
+        text = pr["text"].replace("{screen}", args.get("screen", "?")).replace("{platform}", args["platform"])
+        res = {"description": pr["description"], "messages": [{"role": "user", "content": {"type": "text", "text": text}}]}
+    elif method == "resources/list":
+        res = {"resources": [{"uri": u, "name": n, "mimeType": m} for u, (n, m, _) in RESOURCES.items()]}
+    elif method == "resources/read":
+        uri = msg.get("params", {}).get("uri")
+        if uri not in RESOURCES:
+            return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32002, "message": "Resource not found"}}
+        _, m, text = RESOURCES[uri]
+        res = {"contents": [{"uri": uri, "mimeType": m, "text": text}]}
     elif method == "ping":
         res = {}
     else:

@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stitch-native"
+version = "0.2.0"
+description = "Convert Google Stitch screens (HTML + Tailwind) into native SwiftUI and Jetpack Compose. CLI + MCP server."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "Rafael Santos" }]
+keywords = ["stitch", "swiftui", "jetpack-compose", "mcp", "design-to-code", "tailwind"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Code Generators",
+  "Environment :: Console",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/rafaelcsan705/stitch-native"
+Issues = "https://github.com/rafaelcsan705/stitch-native/issues"
+
+[project.scripts]
+stitch-native = "stitch_native:cli"
+stitch-native-mcp = "stitch_native_mcp:main"
+
+[tool.setuptools]
+py-modules = ["stitch_native", "stitch_native_mcp"]

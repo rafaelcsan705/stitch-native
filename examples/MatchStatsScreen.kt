@@ -40,7 +40,7 @@ fun MatchStatsScreen() {
                 }
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 14.dp), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(3f), verticalArrangement = Arrangement.spacedBy(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Row(modifier = Modifier.width(48.dp).height(48.dp).border(1.dp, StitchTheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp)).background(StitchTheme.surfaceContainerHighest, RoundedCornerShape(12.dp)).padding(4.dp), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
+                        Box(modifier = Modifier.width(48.dp).height(48.dp).border(1.dp, StitchTheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp)).background(StitchTheme.surfaceContainerHighest, RoundedCornerShape(12.dp)).padding(4.dp), contentAlignment = Alignment.Center) {
                             AsyncImage(
                                 model = "https://example.com/home.png",
                                 contentDescription = null,
@@ -65,7 +65,7 @@ fun MatchStatsScreen() {
                         )
                     }
                     Column(modifier = Modifier.weight(3f), verticalArrangement = Arrangement.spacedBy(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Row(modifier = Modifier.width(48.dp).height(48.dp).border(1.dp, StitchTheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp)).background(StitchTheme.surfaceContainerHighest, RoundedCornerShape(12.dp)).padding(4.dp), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
+                        Box(modifier = Modifier.width(48.dp).height(48.dp).border(1.dp, StitchTheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp)).background(StitchTheme.surfaceContainerHighest, RoundedCornerShape(12.dp)).padding(4.dp), contentAlignment = Alignment.Center) {
                             AsyncImage(
                                 model = "https://example.com/away.png",
                                 contentDescription = null,
@@ -181,8 +181,8 @@ fun MatchStatsScreen() {
                             )
                         }
                     }
-                    Row(modifier = Modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Row(modifier = Modifier.width(20.dp).height(20.dp).background(StitchTheme.primaryContainer, CircleShape), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier, contentAlignment = Alignment.Center) {
+                        Box(modifier = Modifier.width(20.dp).height(20.dp).background(StitchTheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
                             Text(
                                 text = "2",
                                 fontSize = 12.sp,

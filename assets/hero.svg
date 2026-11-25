@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420" font-family="ui-monospace,Menlo,monospace">
+  <rect width="1200" height="420" rx="20" fill="#0f1117"/>
+  <g font-size="15">
+    <rect x="40" y="60" width="330" height="300" rx="14" fill="#161b22" stroke="#30363d"/>
+    <text x="60" y="95" fill="#4285F4" font-size="17" font-weight="700">Stitch · HTML + Tailwind</text>
+    <text x="60" y="135" fill="#9aa4b2">&lt;div class="flex justify-between</text>
+    <text x="60" y="160" fill="#9aa4b2">  items-center gap-space-md"&gt;</text>
+    <text x="60" y="185" fill="#d8e6dd">  &lt;h2 class="font-headline-md</text>
+    <text x="60" y="210" fill="#d8e6dd">    text-on-surface"&gt;Stats&lt;/h2&gt;</text>
+    <text x="60" y="235" fill="#9aa4b2">  &lt;span class="text-body-sm"&gt;</text>
+    <text x="60" y="260" fill="#9aa4b2">&lt;/div&gt;</text>
+    <path d="M390 210h50" stroke="#F05138" stroke-width="4" marker-end="url(#a)"/>
+    <rect x="450" y="60" width="330" height="140" rx="14" fill="#161b22" stroke="#30363d"/>
+    <text x="470" y="95" fill="#F05138" font-size="17" font-weight="700">SwiftUI</text>
+    <text x="470" y="130" fill="#d8e6dd">HStack(spacing: 14) {</text>
+    <text x="470" y="155" fill="#d8e6dd">  Text("Stats").font(.headlineMd)</text>
+    <text x="470" y="180" fill="#9aa4b2">  Spacer() … }</text>
+    <rect x="450" y="220" width="330" height="140" rx="14" fill="#161b22" stroke="#30363d"/>
+    <text x="470" y="255" fill="#3DDC84" font-size="17" font-weight="700">Jetpack Compose</text>
+    <text x="470" y="290" fill="#d8e6dd">Row(horizontalArrangement =</text>
+    <text x="470" y="315" fill="#d8e6dd">  Arrangement.SpaceBetween) {</text>
+    <text x="470" y="340" fill="#9aa4b2">  Text("Stats", style = …) }</text>
+    <rect x="830" y="60" width="330" height="300" rx="14" fill="#161b22" stroke="#30363d"/>
+    <text x="850" y="95" fill="#c9a0ff" font-size="17" font-weight="700">MCP · any agent</text>
+    <text x="850" y="135" fill="#d8e6dd">stitch_to_native</text>
+    <text x="850" y="160" fill="#d8e6dd">stitch_to_swiftui</text>
+    <text x="850" y="185" fill="#d8e6dd">stitch_to_compose</text>
+    <text x="850" y="210" fill="#d8e6dd">stitch_tokens · stitch_ir</text>
+    <text x="850" y="250" fill="#9aa4b2">Claude · Cursor · VS Code</text>
+    <text x="850" y="275" fill="#9aa4b2">uvx stitch-native-mcp</text>
+  </g>
+  <defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#F05138"/></marker></defs>
+</svg>
