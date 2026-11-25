@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/logo.svg" width="96" alt="stitch-native logo"></p>
 <h1 align="center">stitch-native</h1>
-<p align="center">Google Stitch screens → native <b>SwiftUI</b> and <b>Jetpack Compose</b>. CLI + MCP server.</p>
+<p align="center">Google Stitch screens → native <b>SwiftUI</b>, <b>Jetpack Compose</b> and plain <b>HTML</b>. CLI + MCP server.</p>
 <p align="center">
 <a href="https://github.com/rafaelcsan705/stitch-native/actions/workflows/ci.yml"><img src="https://github.com/rafaelcsan705/stitch-native/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 <img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+">
@@ -29,7 +29,7 @@ uvx --from git+https://github.com/rafaelcsan705/stitch-native stitch-native swif
   "args": ["--from", "git+https://github.com/rafaelcsan705/stitch-native", "stitch-native-mcp"] } } }
 ```
 
-Tools: `stitch_to_native`, `stitch_to_swiftui`, `stitch_to_compose`, `stitch_tokens`, `stitch_ir` (source: `html`, `path` or `url`). Prompt: `convert_screen`. Resources: token-map and IR docs.
+Tools: `stitch_to_native`, `stitch_to_swiftui`, `stitch_to_compose`, `stitch_to_html`, `extract_tokens`, `stitch_to_ir`, `init_config` (source: `html`, `path` or `url`). Prompt: `convert_screen`. Resources: token-map and IR docs.
 
 ## How it works
 
@@ -39,7 +39,7 @@ Stitch HTML + tailwind.config  →  DOM  →  IR (JSON: box / text / icon / imag
 
 1. Reads the Tailwind theme Stitch embeds (`colors`, `spacing`, `borderRadius`, `fontFamily`, `fontSize`).
 2. Resolves each element's classes into a small layout IR (row / column / grid, padding, gap, radius, borders, text styles).
-3. Emits SwiftUI or Compose. Colours that are not theme tokens are reported as off-token literals.
+3. Emits SwiftUI, Compose or HTML. Colours that are not theme tokens are reported as off-token literals.
 
 ## Usage
 
@@ -48,6 +48,8 @@ python3 stitch_native.py swiftui  screen.html --name MatchStatsView    > MatchSt
 python3 stitch_native.py compose  screen.html --name MatchStatsScreen  > MatchStatsScreen.kt
 python3 stitch_native.py tokens        screen.html > StitchTheme.swift
 python3 stitch_native.py tokens-kotlin screen.html > StitchTheme.kt
+python3 stitch_native.py html     screen.html --name MatchStats       > MatchStats.html
+python3 stitch_native.py tokens-css    screen.html > tokens.css
 python3 stitch_native.py ir            screen.html > screen.ir.json
 
 # State mode: stateless screen + State struct/sample, keys, callbacks (no ViewModel)
@@ -74,6 +76,28 @@ python3 stitch_native.py compose fixtures/fornada-encomendas.html --name OrdersL
 
 An existing enum must be a plain case enum (`Hashable`, no payloads). The Swift generated code uses `Order.Status`-style names verbatim, so the row struct must not be called `Order` (it is renamed automatically).
 
+### Targets
+
+A project declares its ecosystem with `targets` in `stitch-native.json`: any of `swiftui`, `compose`, `html`. Without it (and without a `targets` argument) the tools emit `swiftui` + `compose`, as before. Unknown names are an error that lists the valid ones.
+
+```bash
+python3 stitch_native.py init screen.html --targets swiftui,html   # writes only swiftui + html keys, stores targets
+```
+
+- MCP `stitch_to_native` and `init_config` take a `targets` argument (it wins over the config). `stitch_to_native` emits only those targets and their theme files; `init_config` writes only their keys (an iOS-only project gets no `iconsCompose` and no `output.compose`) and never deletes existing entries.
+- Internally one registry (`TARGETS` in `stitch_native.py`: emitter, theme function, fence language, owned config keys) drives the CLI, MCP and `init`, so a new ecosystem is one registry entry plus its emitter.
+- **Config discovery (MCP):** when no `config`, `map` or `config_path` is passed but `path` is, the server reads the nearest `stitch-native.json` next to that file or in a parent directory (up to the filesystem root); otherwise it uses no config. The CLI keeps reading `./stitch-native.json`.
+
+### HTML target
+
+`html` writes one self-contained page: a single `<style>` block (tokens as `--color-*`, `--space-*`, `--font-*` custom properties on `:root`, plus generated `.s1`, `.s2`… classes), semantic tags where the export has them (`header`, `nav`, `main`, `section`, `h1`…, `ul`, `table`…), and no Tailwind, no `<script>`, no external URLs. Fonts use the system stack (a token's own font name is tried first). Images keep their `src`; inline `<svg>` becomes an empty `<span>` with a TODO comment.
+
+- Material icons become `<span class="icon" data-icon="name">`. Fill them with `iconsHtml` (`{"home": "⌂"}` text or inline `<svg>` markup, used verbatim); unmapped names are listed (`unmapped iconsHtml` in `init`, `unmapped icons` in the report).
+- Colours: `colorsHtml` (token or `#hex` → CSS value) wins; `colors` entries are used only when they already look like a CSS value (`#hex`, `var(...)`, `rgb(...)`…), so a Swift expression shared with the iOS target never lands in the CSS. Off-token literals are reported like for the other targets.
+- Toasts and sheets are emitted `hidden`; top and bottom bars are `position: sticky`.
+- Layout mode only: `--mode state` / `mode: "state"` is an error for `html`; `stitch_to_native` in state mode skips it with a warning.
+- Examples: [`examples/MatchStats.html`](examples/MatchStats.html), [`examples/OrdersList.html`](examples/OrdersList.html).
+
 ### Map tokens to your design system
 
 ```json
@@ -86,8 +110,8 @@ python3 stitch_native.py init screen.html      # writes stitch-native.json, list
 python3 stitch_native.py swiftui screen.html   # auto-loads ./stitch-native.json (or --config path)
 ```
 
-`stitch-native.json` also takes `icons` (Material → SF Symbol), `iconsCompose`
-(Material → `Icons.X.Y`), `preview.colorScheme` and `output` folders. `null` entries fall back to the theme.
+`stitch-native.json` also takes `targets`, `icons` (Material → SF Symbol), `iconsCompose`
+(Material → `Icons.X.Y`), `iconsHtml`, `colorsHtml`, `preview.colorScheme` and `output` folders. `null` entries fall back to the theme.
 
 ## MCP server
 
@@ -99,19 +123,20 @@ claude mcp add stitch-native -- python3 /path/to/stitch_native_mcp.py
 
 | Tool | Does |
 |---|---|
-| `extract_tokens` | Theme file for `swiftui` or `compose` |
+| `extract_tokens` | Theme file for `swiftui`, `compose` or `html` (CSS custom properties) |
 | `stitch_to_ir` | Layout IR as JSON |
 | `stitch_to_swiftui` | SwiftUI view + off-token report |
 | `stitch_to_compose` | Compose composable + off-token report |
-| `stitch_to_native` | Both platforms in one call |
+| `stitch_to_html` | Self-contained HTML page + off-token and unmapped-icon report (layout mode) |
+| `stitch_to_native` | The configured targets (default swiftui + compose) in one call, with their theme files |
 | `init_config` | `stitch-native.json` skeleton + unmapped list |
 
-Each tool takes `html` (the export) or `path`; the code tools also take `name` and `config` (object) or `config_path`.
+Each tool takes `html` (the export) or `path`; the code tools also take `name` and `config` (object) or `config_path` (else the nearest `stitch-native.json` next to `path`).
 Pairs well with the official Stitch MCP: fetch the screen HTML there, convert here.
 
 ## Example
 
-`fixtures/match-stats.html` → [`examples/MatchStatsView.swift`](examples/MatchStatsView.swift) and [`examples/MatchStatsScreen.kt`](examples/MatchStatsScreen.kt).
+`fixtures/match-stats.html` → [`examples/MatchStatsView.swift`](examples/MatchStatsView.swift), [`examples/MatchStatsScreen.kt`](examples/MatchStatsScreen.kt) and [`examples/MatchStats.html`](examples/MatchStats.html).
 
 ## Status
 

@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
-"""stitch-native: Stitch HTML (Tailwind) -> IR (JSON) -> SwiftUI / Jetpack Compose.
+"""stitch-native: Stitch HTML (Tailwind) -> IR (JSON) -> SwiftUI / Jetpack Compose / HTML.
 
 Usage:
   python3 stitch_native.py ir      <screen.html>              # print the IR
   python3 stitch_native.py swiftui <screen.html> [--map m.json] [--name ScreenView]
   python3 stitch_native.py compose <screen.html> [--map m.json] [--name Screen]
+  python3 stitch_native.py html    <screen.html> [--map m.json] [--name Title]   # one self-contained page, layout mode only
   python3 stitch_native.py tokens  <screen.html>              # Theme.swift from tailwind.config
   python3 stitch_native.py tokens-kotlin <screen.html>        # Theme.kt from tailwind.config
-  python3 stitch_native.py init    <screen.html>...           # write/merge stitch-native.json, list unmapped
+  python3 stitch_native.py tokens-css <screen.html>           # :root { --color-*: ... } custom properties
+  python3 stitch_native.py init    <screen.html>... [--targets swiftui,html]   # write/merge stitch-native.json, list unmapped
 
-Config: --config c.json (alias --map), else ./stitch-native.json if present. Keys: colors, fonts,
-icons (SF Symbols), iconsCompose, preview.colorScheme, output. null = unmapped.
+Targets: swiftui, compose, html. `init --targets` writes only the keys of those targets and stores `targets`
+in the config (default swiftui + compose); the MCP `stitch_to_native` tool emits the config's `targets`.
+
+Config: --config c.json (alias --map), else ./stitch-native.json if present. Keys: targets, colors, fonts,
+icons (SF Symbols), iconsCompose, iconsHtml, colorsHtml, preview.colorScheme, output. null = unmapped.
 
 Standard library only. Prototype: covers the Tailwind subset Stitch emits on mobile screens.
 """
@@ -19,6 +24,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from html import escape as html_escape
 from html.parser import HTMLParser
 
 # ---------------------------------------------------------------- config
@@ -335,6 +341,8 @@ def parse(html: str):
         ir["overlays"] = overlays
     m = re.search(r"<html[^>]*class=\"([^\"]*)\"", html, re.I)
     th.scheme = "dark" if m and "dark" in m.group(1).split() else "light"
+    lm = re.search(r"<html[^>]*\blang=\"([^\"]+)\"", html, re.I)
+    th.lang = lm.group(1) if lm else None
     return th, ir, warn
 
 
@@ -2073,17 +2081,377 @@ def theme_swift(th: Theme) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------- IR -> HTML
+
+CSS_FONT_STACK = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+
+
+def _ident(s: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_-]", "-", s)
+
+
+def theme_css(th: Theme) -> str:
+    """Design tokens as CSS custom properties on :root (no <style> wrapper)."""
+    lines = [":root {", f"  --font-sans: {CSS_FONT_STACK};"]
+    for k, v in sorted(th.colors.items()):
+        lines.append(f"  --color-{_ident(k)}: #{v.lstrip('#')};")
+    for k, v in sorted(th.spacing.items()):
+        lines.append(f"  --space-{_ident(k)}: {v:g}px;")
+    for k, v in sorted(th.font_family.items()):
+        fam = v[0] if isinstance(v, list) and v else v
+        lines.append(f'  --font-{_ident(k)}: "{fam}", {CSS_FONT_STACK};')
+    return "\n".join(lines + ["}", ""])
+
+
+class HtmlEmitter:
+    """One self-contained HTML document: tokens as CSS custom properties, generated classes, semantic tags.
+
+    No Tailwind, no script, no external URLs for fonts or icons. Layout mode only."""
+
+    CSS_VALUE = re.compile(r"^(#[0-9a-fA-F]{3,8}|(?:var|rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color|color-mix|light-dark)\(.*\)"
+                           r"|transparent|currentColor)$")
+    BOX_TAGS = {"div", "header", "nav", "main", "section", "article", "aside", "footer", "ul", "ol", "li", "form", "figure",
+                "fieldset", "table", "thead", "tbody", "tfoot", "tr", "td", "th", "dl", "dt", "dd", "details", "summary",
+                "address", "blockquote", "label", "p", "span", "h1", "h2", "h3", "h4", "h5", "h6"}
+    TEXT_TAGS = BOX_TAGS | {"strong", "em", "small", "b", "i", "time", "legend", "caption", "figcaption", "code", "pre"}
+    VOID_TAGS = {"br", "hr", "input"}
+    ALIGN = {"start": "flex-start", "end": "flex-end", "center": "center", "baseline": "baseline"}
+    JUSTIFY = {"between": "space-between", "around": "space-around", "start": "flex-start", "end": "flex-end", "center": "center"}
+    OVERLAY = {"topBar": "position: sticky; top: 0; z-index: 20",
+               "bottomBar": "position: sticky; bottom: 0; z-index: 20",
+               "toast": "position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 30",
+               "sheet": "position: fixed; left: 0; right: 0; bottom: 0; z-index: 40"}
+    BASE = """html { color-scheme: %s; -webkit-text-size-adjust: 100%%; }
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font-sans); }
+h1, h2, h3, h4, h5, h6 { margin: 0; font-size: inherit; font-weight: inherit; }
+p, figure, blockquote, dl, dd { margin: 0; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+table { border-collapse: collapse; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; text-align: inherit; cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%%; }
+.icon { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 1em; height: 1em; line-height: 1; }
+.icon svg { width: 100%%; height: 100%%; fill: currentColor; }
+[hidden] { display: none !important; }"""
+
+    def __init__(self, th: Theme, mapping: dict):
+        self.th = th
+        self.map = {k: ({kk: vv for kk, vv in v.items() if vv} if isinstance(v, dict) and k != "preview" else v)
+                    for k, v in (mapping or {}).items()}  # null/"" entries = unmapped
+        self.literals: list[str] = []
+        self.unmapped_icons: list[str] = []
+        self.classes: dict[str, str] = {}
+
+    # ------------------------------------------------------------ values
+    @staticmethod
+    def px(v) -> str:
+        return f"{v:g}px"
+
+    def color(self, c: dict) -> str:
+        if c.get("builtin") == "transparent":
+            return "transparent"
+        hexv = c["hex"].lstrip("#")
+        key = c["token"] or ("#" + hexv)
+        base = None
+        for sec, trusted in ((self.map.get("colorsHtml", {}), True), (self.map.get("colors", {}), False)):
+            for k in (key, "#" + hexv):
+                v = sec.get(k) if isinstance(sec, dict) else None
+                if isinstance(v, str) and v.strip() and (trusted or self.CSS_VALUE.match(v.strip())):
+                    base = v.strip()
+                    break
+            if base:
+                break
+        if base is None:
+            if c.get("builtin"):
+                base = {"white": "#ffffff", "black": "#000000"}[c["builtin"]]
+            elif c["token"] and c["token"] in self.th.colors:
+                base = f"var(--color-{_ident(c['token'])})"
+            else:
+                base = "#" + hexv
+                self.literals.append(base)
+        a = c.get("alpha")
+        if a is None:
+            return base
+        if re.fullmatch(r"#[0-9a-fA-F]{6}", base):
+            r, g, b = (int(base[i:i + 2], 16) for i in (1, 3, 5))
+            return f"rgba({r}, {g}, {b}, {a:g})"
+        return f"color-mix(in srgb, {base} {a * 100:g}%, transparent)"
+
+    @staticmethod
+    def cstyle(n: dict) -> dict:
+        return n.get("box", {}) if n.get("kind") == "text" else n.get("style", {})
+
+    def cls(self, decls: list[str]) -> str | None:
+        if not decls:
+            return None
+        key = "; ".join(decls)
+        if key not in self.classes:
+            self.classes[key] = f"s{len(self.classes) + 1}"
+        return self.classes[key]
+
+    # ------------------------------------------------------------ style -> CSS declarations
+    def declarations(self, s: dict, kids=(), parent=None) -> list[str]:
+        """parent = (parent style, mode) where mode is 'flexpct' | 'grid' | None."""
+        d: list[str] = []
+        layout = s.get("layout")
+        if layout in ("row", "column"):
+            d += ["display: flex"] + (["flex-direction: column"] if layout == "column" else [])
+        elif layout == "grid":
+            if any("widthPct" in self.cstyle(k) for k in kids):
+                d.append("display: flex")
+            elif s.get("cols"):
+                d += ["display: grid", f"grid-template-columns: repeat({s['cols']}, minmax(0, 1fr))"]
+            else:
+                d += ["display: grid", "grid-auto-flow: column", "grid-auto-columns: 1fr"]
+        if s.get("align") in self.ALIGN and layout:
+            d.append(f"align-items: {self.ALIGN[s['align']]}")
+        if s.get("justify") in self.JUSTIFY and layout:
+            d.append(f"justify-content: {self.JUSTIFY[s['justify']]}")
+        if s.get("gap") is not None and layout:
+            d.append(f"gap: {self.px(s['gap'])}")
+        if parent:
+            ps, mode = parent
+            if mode == "flexpct":
+                d += [f"flex: 0 1 {s['widthPct'] * 100:g}%", "min-width: 0"] if "widthPct" in s else ["flex: 1 1 0", "min-width: 0"]
+            elif mode == "grid" and "span" in s and ps.get("cols"):
+                d.append(f"grid-column: span {s['span']}")
+            elif mode is None and "widthPct" in s:
+                d.append(f"width: {s['widthPct'] * 100:g}%")
+        elif "widthPct" in s:
+            d.append(f"width: {s['widthPct'] * 100:g}%")
+        w, h = s.get("width"), s.get("height")
+        if w == "fill":
+            d.append("width: 100%")
+        elif isinstance(w, (int, float)):
+            d.append(f"width: {self.px(w)}")
+        if isinstance(h, (int, float)):
+            d.append(f"height: {self.px(h)}")
+        if s.get("maxWidth"):
+            d.append(f"max-width: {self.px(s['maxWidth'])}")
+        d += self.spacing("padding", s.get("pad", {}))
+        d += self.spacing("margin", s.get("margin", {}))
+        shape = False
+        if (r := s.get("radius")) is not None:
+            d.append(f"border-radius: {self.px(min(r, 9999))}")
+            shape = True
+        elif cs := s.get("corners"):
+            corner = {"t": ("top-left", "top-right"), "b": ("bottom-left", "bottom-right"),
+                      "l": ("top-left", "bottom-left"), "r": ("top-right", "bottom-right")}
+            for side, v in cs.items():
+                d += [f"border-{c}-radius: {self.px(min(v, 9999))}" for c in corner[side]]
+            shape = True
+        if "bg" in s:
+            d.append(f"background-color: {self.color(s['bg'])}")
+        if "border" in s and "divider" not in s:
+            col = self.color(s["border"].get("color") or {"hex": "3c4a3e", "token": "outline-variant", "alpha": None})
+            d.append(f"border: 1px solid {col}")
+        if s.get("divider"):
+            col = self.color(s.get("borderColor") or {"hex": "3c4a3e", "token": "outline-variant", "alpha": None})
+            d.append(f"border-{ {'b': 'bottom', 't': 'top', 'l': 'left', 'r': 'right'}[s['divider']] }: 1px solid {col}")
+        if shape and "bg" not in s and "border" not in s:
+            d.append("overflow: hidden")
+        d += self.text_declarations(s)
+        return d
+
+    def spacing(self, prop: str, sides: dict) -> list[str]:
+        sides = {k: v for k, v in sides.items() if v}
+        if not sides:
+            return []
+        if len(sides) == 4:
+            t, b, l, r = (sides[k] for k in "tblr")
+            vals = [t, r, b, l]
+            if len(set(vals)) == 1:
+                return [f"{prop}: {self.px(t)}"]
+            return [f"{prop}: " + " ".join(self.px(v) for v in vals)]
+        return [f"{prop}-{ {'t': 'top', 'b': 'bottom', 'l': 'left', 'r': 'right'}[k] }: {self.px(sides[k])}" for k in "tblr" if k in sides]
+
+    def text_declarations(self, s: dict) -> list[str]:
+        d: list[str] = []
+        ftok = s.get("familyToken")
+        ft = self.th.font_size.get(s["fontToken"]) if s.get("fontToken") else (self.th.font_size.get(ftok) if ftok else None)
+        if ftok and ftok in self.th.font_family:
+            d.append(f"font-family: var(--font-{_ident(ftok)})")
+        elif s.get("family"):
+            fam = s["family"][0] if isinstance(s["family"], list) else s["family"]
+            d.append(f'font-family: "{fam}", {CSS_FONT_STACK}')
+        size = s.get("fontSize") or (ft or {}).get("size")
+        weight = s.get("weight") or (ft or {}).get("weight")
+        if size:
+            d.append(f"font-size: {self.px(size)}")
+        if weight:
+            d.append(f"font-weight: {int(weight)}")
+        if ft and ft.get("lineHeight"):
+            d.append(f"line-height: {ft['lineHeight']}")
+        if s.get("uppercase"):
+            d.append("text-transform: uppercase")
+        if s.get("textAlign"):
+            d.append(f"text-align: {s['textAlign']}")
+        if "color" in s:
+            d.append(f"color: {self.color(s['color'])}")
+        if s.get("lineLimit"):
+            d.append("white-space: nowrap; overflow: hidden; text-overflow: ellipsis")
+        return d
+
+    # ------------------------------------------------------------ nodes
+    def attrs(self, classes: list[str | None], extra: list[str] | None = None) -> str:
+        cl = " ".join(c for c in classes if c)
+        parts = ([f'class="{cl}"'] if cl else []) + list(extra or [])
+        return (" " + " ".join(parts)) if parts else ""
+
+    def node(self, n: dict, ind: str, parent=None) -> list[str]:
+        k = n["kind"]
+        if k == "text":
+            s = {**n["style"], **n.get("box", {})}
+            tag = n.get("tag") if n.get("tag") in self.TEXT_TAGS else "span"
+            c = self.cls(self.declarations(s, parent=parent))
+            return [f"{ind}<{tag}{self.attrs([c])}>{html_escape(n['text'], quote=False)}</{tag}>"]
+        if k == "icon":
+            name = n["material"]
+            val = self.map.get("iconsHtml", {}).get(name)
+            if not val:
+                self.unmapped_icons.append(name)
+            body = "" if not val else (val if val.lstrip().startswith("<") else html_escape(val, quote=False))
+            c = self.cls(self.declarations(n["style"], parent=parent))
+            return [f'{ind}<span{self.attrs(["icon", c], [f"data-icon={chr(34)}{html_escape(name)}{chr(34)}", "aria-hidden=" + chr(34) + "true" + chr(34)])}>{body}</span>']
+        if k == "vector":
+            c = self.cls(self.declarations(n["style"], parent=parent))
+            label = n.get("label")
+            extra = ['role="img"', f'aria-label="{html_escape(label)}"'] if label else ['aria-hidden="true"']
+            return [f"{ind}<span{self.attrs([c], extra)}></span> <!-- TODO inline svg from the export -->"]
+        if k == "image":
+            c = self.cls(self.declarations(n["style"], parent=parent) +
+                         (["object-fit: cover"] if isinstance(n["style"].get("width"), (int, float)) and isinstance(n["style"].get("height"), (int, float)) else []))
+            extra = ([f'src="{html_escape(n["src"])}"'] if n.get("src") else []) + [f'alt="{html_escape(n.get("alt") or "")}"']
+            return [f"{ind}<img{self.attrs([c], extra)}>"]
+        if k == "button":
+            return self.button(n, ind, parent)
+        return self.box(n, ind, parent)
+
+    def box(self, n: dict, ind: str, parent=None, tag: str | None = None, extra: list[str] | None = None) -> list[str]:
+        s, kids = n["style"], n["children"]
+        t = tag or n.get("tag")
+        if t in self.VOID_TAGS:
+            return [f"{ind}<{t}{self.attrs([self.cls(self.declarations(s, parent=parent))], extra)}>"]
+        t = t if t in self.BOX_TAGS or t in ("button", "a") else "div"
+        pct = s.get("layout") == "grid" and any("widthPct" in self.cstyle(c) for c in kids)
+        mode = "flexpct" if pct else ("grid" if s.get("layout") == "grid" else None)
+        head = f"{ind}<{t}{self.attrs([self.cls(self.declarations(s, kids, parent))], (extra or []) + ([f'id={chr(34)}{html_escape(n['id'])}{chr(34)}'] if n.get('id') else []))}>"
+        out = []
+        for ch in kids:
+            out += self.node(ch, ind + "  ", (s, mode))
+        return [head] + out + [f"{ind}</{t}>"] if out else [head + f"</{t}>"]
+
+    def button(self, n: dict, ind: str, parent=None) -> list[str]:
+        tag, c = n["tag"], n["content"]
+        act = n.get("action") or ""
+        js = "(" in act or act.startswith("javascript:")
+        extra = ['type="button"'] if tag == "button" else [f'href="{html_escape(act)}"' if act and not js else 'href="#"']
+        if js:
+            extra.append(f'data-action="{html_escape(act)}"')
+        if n.get("label"):
+            extra.append(f'aria-label="{html_escape(n["label"])}"')
+        if n.get("current"):
+            extra.append('aria-current="page"')
+        if c["kind"] == "box":
+            return self.box(c, ind, parent, tag, extra)
+        return [f"{ind}<{tag}{self.attrs([], extra)}>"] + self.node(c, ind + "  ") + [f"{ind}</{tag}>"]
+
+    # ------------------------------------------------------------ document
+    def screen(self, ir: dict, name: str) -> str:
+        if ir.get("state"):
+            raise ValueError("The html target supports layout mode only (mode: state is not available for html).")
+        self.classes = {}
+        self.unmapped_icons = []
+        root = ir if ir["kind"] == "box" else {"kind": "box", "tag": "body", "style": {}, "children": [ir]}
+        overlays = ir.get("overlays", [])
+        body: list[str] = []
+        for role in ("topBar",):
+            for o in overlays:
+                if o["role"] == role:
+                    body += self.overlay(o, "  ")
+        mode = "flexpct" if root["style"].get("layout") == "grid" and any("widthPct" in self.cstyle(c) for c in root["children"]) else (
+            "grid" if root["style"].get("layout") == "grid" else None)
+        for ch in root["children"]:
+            body += self.node(ch, "  ", (root["style"], mode))
+        for role in ("bottomBar", "toast", "sheet"):
+            for o in overlays:
+                if o["role"] == role:
+                    body += self.overlay(o, "  ")
+        body_cls = self.cls(self.declarations(root["style"], root["children"]))
+        scheme = self.map.get("preview", {}).get("colorScheme") or getattr(self.th, "scheme", "light")
+        lang = getattr(self.th, "lang", None) or "en"
+        css = [theme_css(self.th).rstrip("\n"), self.BASE % scheme]
+        css += [f".{c} {{ {d}; }}" for d, c in self.classes.items()]
+        return "\n".join([
+            "<!DOCTYPE html>",
+            "<!-- Generated by stitch-native from a Stitch export. Do not hand-edit; regenerate. -->",
+            f'<html lang="{html_escape(lang)}">', "<head>", '<meta charset="utf-8">',
+            '<meta name="viewport" content="width=device-width, initial-scale=1">',
+            f"<title>{html_escape(name, quote=False)}</title>", "<style>", *css, "</style>", "</head>",
+            f"<body{self.attrs([body_cls])}>", *body, "</body>", "</html>", ""])
+
+    def overlay(self, o: dict, ind: str) -> list[str]:
+        role = o["role"]
+        c = self.cls([self.OVERLAY[role]])
+        extra = [f'data-overlay="{role}"']
+        if role in ("toast", "sheet"):
+            tag = "aside"
+            extra += ['hidden', 'role="status"' if role == "toast" else 'role="dialog" aria-modal="true"']
+        else:
+            tag = "div"
+        return [f"{ind}<{tag}{self.attrs([c], extra)}>"] + self.node(o["node"], ind + "  ") + [f"{ind}</{tag}>"]
+
+
+# ---------------------------------------------------------------- targets
+
+# One entry per ecosystem. Adding a target = one entry here plus its emitter (and theme function).
+#   emitter   class with .screen(ir, name), .literals
+#   theme     function(Theme) -> str
+#   fence     code fence language of the screen; theme_fence the one of the theme file
+#   icon_keys config sections of icon maps the target owns (written by `init`)
+#   report    icon sections whose unmapped entries `init` reports
+#   output    key under config "output"
+#   modes     modes the emitter supports
+#   cli       CLI subcommand that emits the screen; tokens_cmd the one that emits the theme
+TARGETS = {
+    "swiftui": {"emitter": SwiftEmitter, "theme": theme_swift, "fence": "swift", "theme_fence": "swift",
+                "icon_keys": ("icons",), "report": ("icons",), "output": "swiftui", "modes": ("layout", "state"),
+                "cli": "swiftui", "tokens_cmd": "tokens"},
+    "compose": {"emitter": ComposeEmitter, "theme": theme_kotlin, "fence": "kotlin", "theme_fence": "kotlin",
+                "icon_keys": ("iconsCompose",), "report": (), "output": "compose", "modes": ("layout", "state"),
+                "cli": "compose", "tokens_cmd": "tokens-kotlin"},
+    "html": {"emitter": HtmlEmitter, "theme": theme_css, "fence": "html", "theme_fence": "css",
+             "icon_keys": ("iconsHtml",), "report": ("iconsHtml",), "output": "html", "modes": ("layout",),
+             "cli": "html", "tokens_cmd": "tokens-css"},
+}
+DEFAULT_TARGETS = ("swiftui", "compose")
+
+
+def resolve_targets(arg=None, cfg: dict | None = None) -> tuple[str, ...]:
+    """Targets to emit: the argument wins over the config's `targets`, else swiftui + compose.
+    Accepts a list or a comma-separated string. Unknown names raise ValueError listing the valid ones."""
+    raw = arg if arg not in (None, "", []) else (cfg or {}).get("targets")
+    if raw in (None, "", []):
+        return DEFAULT_TARGETS
+    names = [t.strip() for t in raw.split(",")] if isinstance(raw, str) else [str(t).strip() for t in raw]
+    bad = [t for t in names if t not in TARGETS]
+    if bad:
+        raise ValueError(f"Unknown target {', '.join(repr(t) for t in bad)}. Valid targets: {', '.join(TARGETS)}.")
+    return tuple(dict.fromkeys(names))
+
+
 CONFIG_FILE = "stitch-native.json"
 
 
 def load_config(path: str | None = None) -> dict:
     """Explicit --config path, else ./stitch-native.json when present, else {}."""
     import os
-    if path:
-        return json.load(open(path, encoding="utf-8"))
-    if os.path.exists(CONFIG_FILE):
-        return json.load(open(CONFIG_FILE, encoding="utf-8"))
-    return {}
+    path = path or (CONFIG_FILE if os.path.exists(CONFIG_FILE) else None)
+    if not path:
+        return {}
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
 
 
 def used_tokens(ir: dict) -> dict:
@@ -2110,31 +2478,54 @@ def used_tokens(ir: dict) -> dict:
     return {k: sorted(v) for k, v in found.items()}
 
 
-def init_config(irs: list[dict], existing: dict | None = None) -> tuple[dict, dict]:
-    """Skeleton config for the screens; existing entries win. Returns (config, unmapped)."""
+def init_config(irs: list[dict], existing: dict | None = None, targets=None) -> tuple[dict, dict]:
+    """Skeleton config for the screens; existing entries win and are never deleted. Returns (config, unmapped).
+
+    Only the keys of the requested targets are written (argument > config `targets` > swiftui + compose).
+    An explicit `targets` argument is stored in the config so the project declares its ecosystem."""
     cfg = json.loads(json.dumps(existing or {}))
+    chosen = resolve_targets(targets, cfg)
+    if targets not in (None, "", []):
+        cfg["targets"] = list(chosen)
     used = {"colors": set(), "fonts": set(), "icons": set()}
     for ir in irs:
         for k, v in used_tokens(ir).items():
             used[k] |= set(v)
-    for k in ("colors", "fonts", "icons", "iconsCompose"):
+    icon_keys = [k for t in chosen for k in TARGETS[t]["icon_keys"]]
+    for k in ("colors", "fonts", *icon_keys):
         sec = cfg.setdefault(k, {})
-        for t in sorted(used["icons" if k == "iconsCompose" else k]):
+        for t in sorted(used[k if k in used else "icons"]):
             if k == "icons" and t in SwiftEmitter.ICONS:
                 sec.setdefault(t, SwiftEmitter.ICONS[t])
             sec.setdefault(t, None)
     cfg.setdefault("preview", {"colorScheme": None})
-    cfg.setdefault("output", {"swiftui": None, "compose": None})
-    unmapped = {k: [t for t, v in cfg[k].items() if not v] for k in ("colors", "fonts", "icons")}
+    out = cfg.setdefault("output", {})
+    for t in chosen:
+        out.setdefault(TARGETS[t]["output"], None)
+    report = ["colors", "fonts"] + [k for t in chosen for k in TARGETS[t]["report"]]
+    unmapped = {k: [t for t, v in cfg[k].items() if not v] for k in report}
     return cfg, unmapped
 
 
 def main(argv):
+    argv = list(argv)
+    targets = None
+    if "--targets" in argv:
+        i = argv.index("--targets")
+        if i + 1 >= len(argv):
+            sys.stderr.write("--targets needs a value, e.g. --targets swiftui,html\n")
+            return 2
+        targets = argv[i + 1]
+        del argv[i:i + 2]
     if len(argv) >= 2 and argv[1] == "init":
         paths = [a for a in argv[2:] if not a.startswith("--")]
         existing = load_config()
         irs = [parse(open(p, encoding="utf-8").read())[1] for p in paths]
-        cfg, unmapped = init_config(irs, existing)
+        try:
+            cfg, unmapped = init_config(irs, existing, targets)
+        except ValueError as e:
+            sys.stderr.write(f"error: {e}\n")
+            return 2
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2, ensure_ascii=False)
             f.write("\n")
@@ -2151,21 +2542,28 @@ def main(argv):
     opt = next((o for o in ("--config", "--map") if o in argv), None)
     mapping = load_config(argv[argv.index(opt) + 1] if opt else None)
     name = argv[argv.index("--name") + 1] if "--name" in argv else "StitchScreen"
+    by_cli = {t["cli"]: t for t in TARGETS.values()}
+    by_tokens = {t["tokens_cmd"]: t for t in TARGETS.values()}
     if cmd == "ir":
         print(json.dumps(ir, indent=1, ensure_ascii=False))
-    elif cmd == "tokens":
-        print(theme_swift(th))
-    elif cmd == "tokens-kotlin":
-        print(theme_kotlin(th))
-    elif cmd in ("swiftui", "compose"):
-        em = (SwiftEmitter if cmd == "swiftui" else ComposeEmitter)(th, mapping)
-        if "--mode" in argv and argv[argv.index("--mode") + 1] == "state":
+    elif cmd in by_tokens:
+        print(by_tokens[cmd]["theme"](th))
+    elif cmd in by_cli:
+        reg = by_cli[cmd]
+        state = "--mode" in argv and argv[argv.index("--mode") + 1] == "state"
+        if state and "state" not in reg["modes"]:
+            sys.stderr.write(f"error: the {cmd} command supports layout mode only (--mode state is not available).\n")
+            return 2
+        em = reg["emitter"](th, mapping)
+        if state:
             m = re.search(r"<html[^>]*\blang=\"([^\"]+)\"", html)
             extract_state(ir, mapping, name, m.group(1) if m else None)
         print(em.screen(ir, name))
         rep = sorted(set(em.literals))
         warn = list(warn) + (list(em.st.warnings) if getattr(em, "st", None) else [])
         sys.stderr.write(f"warnings: {len(warn)}  off-token literals: {rep}\n")
+        if getattr(em, "unmapped_icons", None):
+            sys.stderr.write(f"unmapped icons: {sorted(set(em.unmapped_icons))}\n")
         for w in sorted(set(warn)):
             sys.stderr.write(f"  - {w}\n")
     else:

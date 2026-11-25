@@ -1,10 +1,10 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
   "name": "io.github.rafaelcsan705/stitch-native",
-  "description": "Convert Google Stitch screens (HTML + Tailwind) to SwiftUI and Jetpack Compose.",
+  "description": "Convert Google Stitch screens (HTML + Tailwind) to SwiftUI, Jetpack Compose and HTML.",
   "repository": { "url": "https://github.com/rafaelcsan705/stitch-native", "source": "github" },
-  "version": "0.3.0",
+  "version": "0.7.0",
   "packages": [
-    { "registryType": "pypi", "identifier": "stitch-native", "version": "0.3.0", "transport": { "type": "stdio" } }
+    { "registryType": "pypi", "identifier": "stitch-native", "version": "0.7.0", "transport": { "type": "stdio" } }
   ]
 }

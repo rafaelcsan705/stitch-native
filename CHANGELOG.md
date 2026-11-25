@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.0 — 2026-11-25
+
+A project can declare its ecosystem, and there is an HTML target.
+
+- **`targets`.** New config key (and MCP `targets` argument on `stitch_to_native` / `init_config`, CLI `init --targets swiftui,html`): any of `swiftui`, `compose`, `html`. The argument wins over the config; with neither, behaviour is unchanged (`swiftui` + `compose`). Unknown names are an error listing the valid ones.
+- **Target registry.** One `TARGETS` table in `stitch_native.py` (emitter, theme function, fence language, owned config keys, output key, supported modes) replaces the hard-coded pairs in `stitch_to_native`, `init_config` and the CLI. A new ecosystem is one entry plus its emitter.
+- `stitch_to_native` emits only the requested targets and their themes. `init_config` writes and reports only their keys (an iOS-only project gets no `iconsCompose` and no `output.compose`); existing entries are never deleted, and an explicit `targets` is stored in the config.
+- **MCP config discovery.** Without `config`, `map` or `config_path`, a `path` argument makes the server use the nearest `stitch-native.json` next to the file or in a parent directory. Before, the MCP server never read a config file by itself.
+- **`html` target.** `HtmlEmitter` + `theme_css`; CLI `html` and `tokens-css`; MCP `stitch_to_html`; `extract_tokens` with `platform: "html"`. One self-contained page: a single `<style>` (tokens as CSS custom properties, generated classes), semantic tags, system font stack, no Tailwind, no `<script>`, no external URLs. Material icons become `<span class="icon" data-icon>` filled from `iconsHtml` (unmapped ones are listed); `colorsHtml` maps colours to CSS values, and `colors` entries are used only when they already look like CSS. Layout mode only (`mode: state` is an error; `stitch_to_native` skips html in state mode with a warning).
+- Golden examples `examples/MatchStats.html` and `examples/OrdersList.html`.
+- Tool descriptions, the `convert_screen` prompt (`platform` may be a comma list; default = the config's `targets`), the token-map resource, CLI help and README updated.
+- Version bump in `pyproject.toml` and `stitch_native_mcp.py`; `server.json` jumps from 0.3.0 to 0.7.0 (it had been left behind).
+
 ## 0.6.0 — 2026-11-25
 
 State mode no longer copies mockup words into generated code, and it can plug into the app's own types.

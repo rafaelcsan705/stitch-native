@@ -7,6 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 import stitch_native as sn  # noqa: E402
+import stitch_native_mcp as mcp  # noqa: E402
 
 FIXTURE = ROOT / "fixtures" / "match-stats.html"
 
@@ -196,6 +197,7 @@ class McpTests(unittest.TestCase):
 
 
 ENC = ROOT / "fixtures" / "fornada-encomendas.html"
+ENC_FIXTURE = ENC
 
 
 class TestOverlaysAndConfig(unittest.TestCase):
@@ -223,6 +225,135 @@ class TestOverlaysAndConfig(unittest.TestCase):
         self.assertIn("receipt", unmapped["icons"])
         self.assertEqual(cfg["icons"]["close"] if "close" in cfg["icons"] else "xmark", "xmark")
         self.assertIn("output", cfg)
+
+
+class TargetsTests(unittest.TestCase):
+    ARGS = {"path": str(FIXTURE)}
+
+    def test_default_is_swiftui_and_compose(self):
+        out = mcp.call_tool("stitch_to_native", dict(self.ARGS))
+        self.assertIn("```swift", out)
+        self.assertIn("```kotlin", out)
+        self.assertNotIn("```html", out)
+        self.assertEqual(sn.resolve_targets(None, {}), ("swiftui", "compose"))
+
+    def test_swiftui_only_has_no_kotlin_and_no_compose_theme(self):
+        out = mcp.call_tool("stitch_to_native", {**self.ARGS, "targets": ["swiftui"]})
+        self.assertIn("```swift", out)
+        for never in ("```kotlin", "@Composable", "androidx.compose", "Color(0xFF"):
+            self.assertNotIn(never, out)
+
+    def test_init_config_swiftui_only_has_no_compose_keys(self):
+        cfg, unmapped = sn.init_config([self.ir()], {}, ["swiftui"])
+        self.assertNotIn("iconsCompose", cfg)
+        self.assertNotIn("compose", cfg["output"])
+        self.assertEqual(cfg["targets"], ["swiftui"])
+        self.assertIn("icons", unmapped)
+        text = mcp.call_tool("init_config", {**self.ARGS, "targets": ["swiftui"]})
+        self.assertNotIn("iconsCompose", text)
+
+    def test_init_config_default_keeps_both_and_never_deletes(self):
+        cfg, _ = sn.init_config([self.ir()], {})
+        self.assertIn("iconsCompose", cfg)
+        self.assertEqual(list(cfg["output"]), ["swiftui", "compose"])
+        self.assertNotIn("targets", cfg)
+        kept, _ = sn.init_config([self.ir()], {"iconsCompose": {"x": "Icons.X"}, "output": {"compose": "app"}}, "swiftui,html")
+        self.assertEqual(kept["iconsCompose"], {"x": "Icons.X"})
+        self.assertEqual(kept["output"]["compose"], "app")
+        self.assertIn("iconsHtml", kept)
+        self.assertIn("html", kept["output"])
+
+    def test_unknown_target_lists_valid_ones(self):
+        with self.assertRaises(ValueError) as cm:
+            sn.resolve_targets(["swiftui", "flutter"], {})
+        self.assertIn("flutter", str(cm.exception))
+        for t in ("swiftui", "compose", "html"):
+            self.assertIn(t, str(cm.exception))
+        with self.assertRaises(ValueError):
+            mcp.call_tool("stitch_to_native", {**self.ARGS, "targets": ["nope"]})
+
+    def test_argument_overrides_config(self):
+        cfg = {"targets": ["swiftui"]}
+        only_cfg = mcp.call_tool("stitch_to_native", {**self.ARGS, "config": cfg})
+        self.assertNotIn("```kotlin", only_cfg)
+        both = mcp.call_tool("stitch_to_native", {**self.ARGS, "config": cfg, "targets": ["compose", "html"]})
+        self.assertIn("```kotlin", both)
+        self.assertIn("```html", both)
+        self.assertNotIn("```swift", both)
+
+    def test_config_discovery_walks_up_and_stops_at_first(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            deep = root / "a" / "b"
+            deep.mkdir(parents=True)
+            screen = deep / "screen.html"
+            screen.write_text(FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
+            (root / sn.CONFIG_FILE).write_text(json.dumps({"targets": ["swiftui"], "colors": {"#12241c": "DS.far"}}))
+            self.assertEqual(mcp.load_cfg({"path": str(screen)})["colors"], {"#12241c": "DS.far"})
+            out = mcp.call_tool("stitch_to_native", {"path": str(screen)})
+            self.assertIn("DS.far", out)
+            self.assertNotIn("```kotlin", out)
+            (root / "a" / sn.CONFIG_FILE).write_text(json.dumps({"colors": {"#12241c": "DS.near"}}))
+            self.assertEqual(mcp.load_cfg({"path": str(screen)})["colors"], {"#12241c": "DS.near"})
+            self.assertEqual(mcp.load_cfg({"path": str(screen), "config": {"x": 1}}), {"x": 1})
+            self.assertEqual(mcp.load_cfg({"html": "<p>"}), {})
+
+    def ir(self):
+        return sn.parse(FIXTURE.read_text(encoding="utf-8"))[1]
+
+
+class HtmlTargetTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.th, cls.ir, _ = sn.parse(FIXTURE.read_text(encoding="utf-8"))
+        cls.out = sn.HtmlEmitter(cls.th, {}).screen(cls.ir, "MatchStats")
+
+    def test_golden_match_stats(self):
+        self.assertEqual(self.out.strip(), (ROOT / "examples" / "MatchStats.html").read_text(encoding="utf-8").strip())
+
+    def test_golden_orders_list(self):
+        th, ir, _ = sn.parse(ENC_FIXTURE.read_text(encoding="utf-8"))
+        out = sn.HtmlEmitter(th, {}).screen(ir, "OrdersList")
+        self.assertEqual(out.strip(), (ROOT / "examples" / "OrdersList.html").read_text(encoding="utf-8").strip())
+
+    def test_self_contained(self):
+        low = self.out.lower()
+        for never in ("<script", "cdn", "tailwind", "fonts.googleapis", "@import", "<link"):
+            self.assertNotIn(never, low)
+        self.assertEqual(low.count("<style>"), 1)
+        self.assertIn("--color-primary: #53f493", self.out)
+        self.assertIn("<h2", self.out)
+
+    def test_icons_and_color_mapping(self):
+        th, ir, _ = sn.parse(ENC_FIXTURE.read_text(encoding="utf-8"))
+        em = sn.HtmlEmitter(th, {"iconsHtml": {"person": "<svg viewBox=\"0 0 1 1\"></svg>", "receipt": "R"},
+                                 "colors": {"primary": "DS.Color.accent", "surface": "var(--brand-surface)"}})
+        out = em.screen(ir, "X")
+        self.assertIn('data-icon="person" aria-hidden="true"><svg', out)
+        self.assertIn(">R</span>", out)
+        self.assertNotIn("receipt", em.unmapped_icons)
+        self.assertIn("bakery_dining", em.unmapped_icons)
+        self.assertIn("var(--brand-surface)", out)
+        self.assertNotIn("DS.Color.accent", out)
+
+    def test_state_mode_errors(self):
+        with self.assertRaises(ValueError):
+            mcp.call_tool("stitch_to_html", {"path": str(ENC_FIXTURE), "mode": "state"})
+        r = subprocess.run([sys.executable, str(ROOT / "stitch_native.py"), "html", str(ENC_FIXTURE), "--mode", "state"],
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("layout mode only", r.stderr)
+        out = mcp.call_tool("stitch_to_native", {"path": str(ENC_FIXTURE), "mode": "state", "targets": ["swiftui", "html"]})
+        self.assertIn("```swift", out)
+        self.assertNotIn("```html", out)
+        self.assertIn("warning: html target skipped", out)
+
+    def test_mcp_html_tool_and_tokens(self):
+        page = mcp.call_tool("stitch_to_html", {"path": str(FIXTURE)})
+        self.assertTrue(page.startswith("<!DOCTYPE html>"))
+        self.assertIn(":root {", mcp.call_tool("extract_tokens", {"path": str(FIXTURE), "platform": "html"}))
+        self.assertIn("```css", mcp.call_tool("stitch_to_native", {"path": str(FIXTURE), "targets": "html"}))
 
 
 if __name__ == "__main__":
