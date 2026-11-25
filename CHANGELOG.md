@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.2 — 2026-11-25
+
+- SwiftUI: `grid-cols-N` with `col-span-*` children now emits a private `SpanColumns` Layout, so 3/1/3 spans keep their 3:1:3 widths instead of equal columns.
+- SwiftUI: percentage split bars subtract gap and padding before applying the percentage, so they no longer overflow their track.
+- MCP serverInfo version now matches pyproject.
+
 ## 0.5.1 — 2026-11-25
 
 - "Brand — Store" texts bind to a generic `storeName` field (override with `storeField` in the config), never a place name.

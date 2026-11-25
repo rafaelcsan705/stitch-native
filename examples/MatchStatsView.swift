@@ -20,7 +20,7 @@ struct MatchStatsView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.bottom, 8)  // margin
-                    HStack(spacing: 0) {
+                    SpanColumns(spans: [3, 1, 3], spacing: 0) {
                         VStack(alignment: .center, spacing: 4) {
                             ZStack {
                                 AsyncImage(url: URL(string: "https://example.com/home.png")) { $0.resizable().scaledToFit() } placeholder: { Color.clear }
@@ -36,13 +36,13 @@ struct MatchStatsView: View {
                                 .foregroundStyle(StitchTheme.onSurface)
                                 .multilineTextAlignment(.center)
                         }
-                            .frame(maxWidth: .infinity)  // col-span 3/7
+                            .frame(maxWidth: .infinity)
                         VStack(alignment: .center, spacing: 0) {
                             Text("4 - 3")
                                 .font(.system(.largeTitle, weight: .bold))
                                 .foregroundStyle(StitchTheme.onSurface)
                         }
-                            .frame(maxWidth: .infinity)  // col-span 1/7
+                            .frame(maxWidth: .infinity)
                         VStack(alignment: .center, spacing: 4) {
                             ZStack {
                                 AsyncImage(url: URL(string: "https://example.com/away.png")) { $0.resizable().scaledToFit() } placeholder: { Color.clear }
@@ -58,7 +58,7 @@ struct MatchStatsView: View {
                                 .foregroundStyle(StitchTheme.onSurface)
                                 .multilineTextAlignment(.center)
                         }
-                            .frame(maxWidth: .infinity)  // col-span 3/7
+                            .frame(maxWidth: .infinity)
                     }
                     .padding(.top, 14)  // margin
                     .padding(.bottom, 14)  // margin
@@ -101,12 +101,12 @@ struct MatchStatsView: View {
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(StitchTheme.primaryContainer, in: UnevenRoundedRectangle(topLeadingRadius: 999, bottomLeadingRadius: 999, bottomTrailingRadius: 0, topTrailingRadius: 0))
-                                    .frame(width: geo.size.width * 0.53)
+                                    .frame(width: max(0, (geo.size.width - 8) * 0.53))
                                 VStack(alignment: .leading, spacing: 0) {
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(StitchTheme.secondaryContainer, in: UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0, bottomTrailingRadius: 999, topTrailingRadius: 999))
-                                    .frame(width: geo.size.width * 0.47)
+                                    .frame(width: max(0, (geo.size.width - 8) * 0.47))
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(2)
@@ -137,12 +137,12 @@ struct MatchStatsView: View {
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(StitchTheme.error, in: UnevenRoundedRectangle(topLeadingRadius: 999, bottomLeadingRadius: 999, bottomTrailingRadius: 0, topTrailingRadius: 0))
-                                    .frame(width: geo.size.width * 0.52)
+                                    .frame(width: max(0, (geo.size.width - 8) * 0.52))
                                 VStack(alignment: .leading, spacing: 0) {
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(StitchTheme.secondaryContainer, in: UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 0, bottomTrailingRadius: 999, topTrailingRadius: 999))
-                                    .frame(width: geo.size.width * 0.48)
+                                    .frame(width: max(0, (geo.size.width - 8) * 0.48))
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(2)
@@ -211,3 +211,28 @@ struct MatchStatsView: View {
         .preferredColorScheme(.dark)
 }
 
+/// CSS grid col-span: each column gets free width (after spacing) in proportion to its span.
+private struct SpanColumns: Layout {
+    var spans: [CGFloat]
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache _: inout ()) -> CGSize {
+        let width = proposal.replacingUnspecifiedDimensions().width
+        let heights = zip(subviews, widths(width)).map { $0.sizeThatFits(ProposedViewSize(width: $1, height: nil)).height }
+        return CGSize(width: width, height: heights.max() ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
+        var x = bounds.minX
+        for (view, w) in zip(subviews, widths(bounds.width)) {
+            view.place(at: CGPoint(x: x, y: bounds.midY), anchor: .leading, proposal: ProposedViewSize(width: w, height: bounds.height))
+            x += w + spacing
+        }
+    }
+
+    private func widths(_ total: CGFloat) -> [CGFloat] {
+        let free = max(0, total - spacing * CGFloat(max(spans.count - 1, 0)))
+        let sum = spans.reduce(0, +)
+        return spans.map { sum > 0 ? free * $0 / sum : 0 }
+    }
+}
