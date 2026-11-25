@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1 — 2026-11-25
+
+- "Brand — Store" texts bind to a generic `storeName` field (override with `storeField` in the config), never a place name.
+- Status trackers render as `ForEach` over the enum cases (`OrderStatus.allCases` / `.entries`), colouring done/current/pending from `state.status`; the enum gets `rank`. Step icons and connectors are simplified away.
+- Order lines render one row per line (`ForEach(state.lines)` / `forEach`); `Line` is `Identifiable`.
+
 ## 0.5.0 — 2026-11-25
 - Dynamic Type: font sizes map to text styles (`.system(.body, weight:)`, `.custom(…, relativeTo:)` for custom families); px sizes are parsed.
 - State mode: order lines (`N× name`) become `lines: [Line]` with a `Line` struct / data class.

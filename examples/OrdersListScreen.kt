@@ -36,7 +36,7 @@ data class OrdersListScreenState(
     val encomenda: String,
     val status: OrderStatus,
     val date: String,
-    val lojaAlcobaca: String,
+    val storeName: String,
     val date2: String,
     val date3: String,
     val lines: List<Line>,
@@ -71,7 +71,7 @@ data class OrdersListScreenState(
             encomenda = "Encomenda #1042",
             status = OrderStatus.Preparar,
             date = "Levantamento hoje · 10:30",
-            lojaAlcobaca = "Padaria Lérias — Loja Alcobaça (Balcão 2)",
+            storeName = "Padaria Lérias — Loja Alcobaça (Balcão 2)",
             date2 = "09:45",
             date3 = "~10:30",
             lines = listOf(Line(2, "Pão de Ló Tradicional"), Line(1, "Broa de Milho"), Line(4, "Pastéis de Nata")),
@@ -337,7 +337,7 @@ fun OrdersListScreen(
                                                 color = StitchTheme.onSurface,
                                             )
                                             Text(
-                                                text = state.lojaAlcobaca,
+                                                text = state.storeName,
                                                 fontSize = 13.sp,
                                                 fontWeight = FontWeight.W400,
                                                 color = StitchTheme.onSurfaceVariant,
@@ -347,72 +347,14 @@ fun OrdersListScreen(
                                         }
                                     }
                                     Column(modifier = Modifier.padding(bottom = 24.dp).padding(start = 4.dp, end = 4.dp), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
-                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                            Column(modifier = Modifier, verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.CenterHorizontally) {
-                                                Box(modifier = Modifier.width(32.dp).height(32.dp).background(StitchTheme.primary, CircleShape), contentAlignment = Alignment.Center) {
-                                                    Icon(
-                                                        imageVector = Icons.Outlined.Done,
-                                                        contentDescription = null,
-                                                    )
-                                                }
+                                        Row(
+                                            OrderStatus.entries.forEach { step ->
                                                 Text(
-                                                    text = stringResource(R.string.orders_list_status_recebida),
-                                                    modifier = Modifier.padding(top = 6.dp),
+                                                    text = stringResource(step.title),
+                                                    modifier = Modifier.weight(1f),
                                                     fontSize = 11.sp,
                                                     fontWeight = FontWeight.W600,
-                                                    color = StitchTheme.primary,
-                                                )
-                                                Text(
-                                                    text = state.date2,
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.W500,
-                                                    color = StitchTheme.onSurfaceVariant,
-                                                )
-                                            }
-                                            Column(modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp).height(4.dp).background(StitchTheme.primary, CircleShape), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
-                                            }
-                                            Column(modifier = Modifier, verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.CenterHorizontally) {
-                                                Box(modifier = Modifier.width(32.dp).height(32.dp).background(StitchTheme.secondary, CircleShape), contentAlignment = Alignment.Center) {
-                                                    Icon(
-                                                        imageVector = Icons.Outlined.Cyclone,
-                                                        contentDescription = null,
-                                                    )
-                                                }
-                                                Text(
-                                                    text = stringResource(R.string.orders_list_status_preparar),
-                                                    modifier = Modifier.padding(top = 6.dp),
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.W600,
-                                                    color = StitchTheme.secondary,
-                                                )
-                                                Text(
-                                                    text = stringResource(R.string.orders_list_status_no_forno),
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.W500,
-                                                    color = StitchTheme.secondary,
-                                                )
-                                            }
-                                            Column(modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp).height(4.dp).background(StitchTheme.surfaceVariant, CircleShape), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
-                                            }
-                                            Column(modifier = Modifier, verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.CenterHorizontally) {
-                                                Box(modifier = Modifier.width(32.dp).height(32.dp).background(StitchTheme.surfaceContainerHigh, CircleShape), contentAlignment = Alignment.Center) {
-                                                    Icon(
-                                                        imageVector = Icons.Outlined.ShoppingBag,
-                                                        contentDescription = null,
-                                                    )
-                                                }
-                                                Text(
-                                                    text = stringResource(R.string.orders_list_status_pronta),
-                                                    modifier = Modifier.padding(top = 6.dp),
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.W500,
-                                                    color = StitchTheme.onSurfaceVariant,
-                                                )
-                                                Text(
-                                                    text = state.date3,
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.W500,
-                                                    color = StitchTheme.outline,
+                                                    color = when { step == state.status -> StitchTheme.secondary; step.ordinal < state.status.ordinal -> StitchTheme.primary; else -> StitchTheme.onSurfaceVariant },
                                                 )
                                             }
                                         }
@@ -425,12 +367,14 @@ fun OrdersListScreen(
                                             fontWeight = FontWeight.W500,
                                             color = StitchTheme.onSurfaceVariant,
                                         )
-                                        Text(
-                                            text = state.lines.joinToString(", ") { "${it.quantity}× ${it.name}" },
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.W400,
-                                            color = StitchTheme.onSurface,
-                                        )
+                                        state.lines.forEach { line ->
+                                            Text(
+                                                text = "${line.quantity}× ${line.name}",
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.W400,
+                                                color = StitchTheme.onSurface,
+                                            )
+                                        }
                                     }
                                     Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp).background(StitchTheme.surfaceContainerLow).padding(top = 8.dp, bottom = 8.dp, start = 16.dp, end = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                         Column(modifier = Modifier, verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {

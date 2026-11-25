@@ -62,17 +62,24 @@ class StateModeTests(unittest.TestCase):
         self.assertEqual(out.strip(), (ROOT / "examples" / "OrdersListView.swift").read_text().strip())
         for must in ("struct OrdersListViewState", "Identifiable", "Picker(", "onRepeat", "#Preview(\"Dark\")",
                      "var brandName: String", "var lines: [Line]", "var status: OrderStatus", "LazyVStack(",
-                     ".font(.system(.body", "ordersList.selectedItems", 'Locale(identifier: "pt")'):
+                     ".font(.system(.body", "ordersList.selectedItems", 'Locale(identifier: "pt")', "var storeName: String",
+                     "ForEach(OrdersListViewState.OrderStatus.allCases", "ForEach(state.lines)", "struct Line: Identifiable"):
             self.assertIn(must, out)
         self.assertNotIn("ViewModel", out)
         self.assertNotIn("UseCase", out)
+        self.assertNotIn("lojaAlcobaca", out)
 
     def test_compose_state_golden_and_rules(self):
         out = self.gen("compose", "OrdersListScreen")
         self.assertEqual(out.strip(), (ROOT / "examples" / "OrdersListScreen.kt").read_text().strip())
         for must in ("data class OrdersListScreenState", "SegmentedButton(", "onRepeat: (", "rememberSaveable",
                      "stringResource(R.string.", "UI_MODE_NIGHT_YES",
-                     "List<Line>", "enum class OrderStatus", "joinToString"):
+                     "List<Line>", "enum class OrderStatus", "OrderStatus.entries.forEach", "state.lines.forEach",
+                     "val storeName: String"):
+            self.assertIn(must, out)
+        for never in ("joinToString", "lojaAlcobaca"):
+            self.assertNotIn(never, out)
+        for must in ():
             self.assertIn(must, out)
         self.assertNotIn("ViewModel", out)
 

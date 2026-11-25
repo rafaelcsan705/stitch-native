@@ -423,6 +423,7 @@ class StateModel:
         self.timezone = sc.get("timezone")
         self.types = sc.get("types", {}) or {}
         self.key_over = sc.get("keys", {}) or {}      # source text or auto key -> final key
+        self.store_field = sc.get("storeField") or "storeName"   # field for "Brand — Store" texts
         self.brand = set(sc.get("brand", []) or [])   # brand texts: bound to state.brandName, never baked in
         self.enums = sc.get("enums", {}) or {}        # name -> {cases: [source texts], type?, current?}
         self.fields: list[dict] = []        # top-level: {name, type, value, cents?, code?}
@@ -551,12 +552,12 @@ def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> St
             st.warnings.append(f"state: '{t}' in the top/bottom bar looks like a brand; list it in state.brand to bind it")
         if not in_shell and re.search(r"\d", t):
             v = _value(t)
-            base = t
-            for b in sorted(st.brand, key=len, reverse=True):   # "Brand — Store" names the field after the store
+            base = None
+            for b in sorted(st.brand, key=len, reverse=True):   # "Brand — Store": a generic field, never a place name
                 if t.startswith(b) and t[len(b):].strip(" —-·|,"):
-                    base = t[len(b):].strip(" —-·|,")
+                    base = st.store_field
                     break
-            fname = st.unique(_field_base(base), ftaken)
+            fname = st.unique(base or _field_base(t), ftaken)
             fields.append({"name": fname, **v})
             n["bind"] = {"scope": scope, "field": fname, "type": v["type"]}
         else:
@@ -676,6 +677,27 @@ def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> St
         n["bind"] = {"scope": "state", "field": fname, "type": "lines"}
         return True
 
+    def tracker(n: dict):
+        # nearest box holding 2+ distinct case labels of one enum = a status tracker: ForEach over the cases
+        labs = [x for x in _leaves(n) if x["kind"] == "text" and x["text"].strip() in case_of]
+        if len(labs) < 2 or len({x["text"].strip() for x in labs}) != len(labs) or len({case_of[x["text"].strip()][0] for x in labs}) != 1:
+            return
+        if any(c["kind"] == "box" and len([x for x in _leaves(c) if x["kind"] == "text" and x["text"].strip() in case_of]) == len(labs)
+               for c in n.get("children", [])):
+            return
+        en = case_of[labs[0]["text"].strip()][0]
+        e = st.enums[en]
+        sig = [_style_sig(x) for x in labs]
+        cur = next((i for i, x in enumerate(labs) if x["text"].strip() == e.get("current")), None)
+        if cur is None:
+            cur = next((i for i in range(1, len(sig)) if sig[i] != sig[0]), 0)
+        if not any(f["name"] == en for f in st.fields):
+            taken.add(en)
+            st.fields.append({"name": en, "type": "enum", "enum": en, "value": enum_cases[en][case_of[labs[cur]["text"].strip()][1]]})
+        for j, ct in enumerate(e["cases"]):
+            st.key(ct, f"{en}.{enum_cases[en][j]}")
+        n["tracker"] = {"enum": en, "field": en, "done": labs[0], "current": labs[cur], "pending": labs[-1]}
+
     def walk(n: dict, in_shell: bool = False):
         k = n["kind"]
         if k == "text":
@@ -686,6 +708,8 @@ def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> St
         elif k == "box":
             if not in_shell and (order_lines(n) or detect_tabs(n) or row_group(n)):
                 return
+            if not in_shell:
+                tracker(n)
             if n.get("id") and st.tabs:
                 for c in st.tabs["cases"]:
                     if re.search(rf"\b{re.escape(c['arg'])}\b", n["id"].replace("-", " ")):
@@ -907,7 +931,24 @@ class SwiftEmitter:
                 return note + [f"{ind}LazyVStack({sp}) {{", f"{ind}    ForEach(state.{r['collection']}) {{ {var} in"] + [
                     "    " + l for l in body] + [f"{ind}    }}", f"{ind}}}"]
             return note + [f"{ind}ForEach(state.{r['collection']}) {{ {var} in"] + body + [f"{ind}}}"]
+        if tr := n.get("tracker"):
+            T = f"{self.st.name}State.{self.enum_type(tr['enum'])}"
+            col = {}
+            for w in ("done", "current", "pending"):
+                out = self.emit(tr[w], ind + "        ")
+                col[w] = next((re.search(r"\.foregroundStyle\((.+)\)", l).group(1) for l in out if ".foregroundStyle(" in l), ".primary")
+            tpl = [l for l in self.emit(tr["current"], ind + "        ")[1:] if ".foregroundStyle(" not in l and ".padding(" not in l]
+            f = tr["field"]
+            return [f"{ind}HStack(alignment: .top, spacing: 0) {{",
+                    f"{ind}    ForEach({T}.allCases, id: \\.self) {{ step in",
+                    f"{ind}        Text(step.title)"] + tpl + [
+                    f"{ind}            .foregroundStyle(step == state.{f} ? {col['current']} : step.rank < state.{f}.rank ? {col['done']} : {col['pending']})",
+                    f"{ind}            .frame(maxWidth: .infinity)",
+                    f"{ind}    }}", f"{ind}}}"]
         lines = self.emit_plain(n, ind)
+        if k == "text" and (b := n.get("bind")) and b["type"] == "lines":
+            return [f"{ind}ForEach(state.{b['field']}) {{ line in",
+                    f'{ind}    Text(verbatim: "\\(line.quantity)× \\(line.name)")'] + ["    " + l for l in lines[1:]] + [f"{ind}}}"]
         if k == "text":
             if b := n.get("bind"):
                 src = f"{self.item_var}.{b['field']}" if b["scope"] == "item" and self.item_var else f"state.{b['field']}"
@@ -1007,11 +1048,12 @@ class SwiftEmitter:
                "// Stateless view: all data comes in through `state`, all actions go out through callbacks.", "",
                f"struct {T}: Equatable {{"]
         if any(f["type"] == "lines" for f in st.fields):
-            out += ["    struct Line: Equatable {", "        let quantity: Int", "        let name: String", "    }", ""]
+            out += ["    struct Line: Identifiable, Equatable {", "        var id = UUID()", "        let quantity: Int", "        let name: String", "    }", ""]
         for f in st.fields:
             if f["type"] == "enum":
                 out += [f"    enum {self.enum_type(f['enum'])}: String, CaseIterable {{"]
                 out += [f"        case {c}" for c, _ in self.enum_cases(f["enum"])]
+                out += ["", "        var rank: Int { Self.allCases.firstIndex(of: self) ?? 0 }"]
                 out += ["", "        var title: LocalizedStringKey {", "            switch self {"]
                 out += [f'            case .{c}: "{k}"' for c, k in self.enum_cases(f["enum"])]
                 out += ["            }", "        }", "    }", ""]
@@ -1332,6 +1374,23 @@ class ComposeEmitter(SwiftEmitter):
             note = [f"{ind}// TODO rows differ in style in the export; this uses the first row"] if r["styleDiffers"] else []
             note.append(f"{ind}// unbounded list: inside a scrolling Column; move to LazyColumn items(state.{r['collection']}, key = {{ it.id }}) when it grows")
             return note + [f"{ind}state.{r['collection']}.forEach {{ {var} ->", f"{ind}    key({var}.id) {{"] + body + [f"{ind}    }}", f"{ind}}}"]
+        if tr := n.get("tracker"):
+            T = self.enum_type(tr["enum"])
+            col = {}
+            for w in ("done", "current", "pending"):
+                out = self.emit(tr[w], ind + "        ")
+                col[w] = next((l.split("color = ", 1)[1].rstrip(",") for l in out if "color = " in l), "Color.Unspecified")
+            f = tr["field"]
+            s = tr["current"]["style"]
+            return self.call(ind, "Row", ["modifier = Modifier.fillMaxWidth()", "horizontalArrangement = Arrangement.SpaceBetween"])[:1] + [
+                f"{ind}    {T}.entries.forEach {{ step ->"] + self.call(ind + "        ", "Text", [
+                    "text = stringResource(step.title)", "modifier = Modifier.weight(1f)"] + [a for a in self.text_style(s) if not a.startswith("color")] + [
+                    f"color = when {{ step == state.{f} -> {col['current']}; step.ordinal < state.{f}.ordinal -> {col['done']}; else -> {col['pending']} }}"]) + [
+                f"{ind}    }}", f"{ind}}}"]
+        if k == "text" and (b := n.get("bind")) and b["type"] == "lines":
+            mod = self.mod_chain(n.get("box", {}), extra)
+            return [f"{ind}state.{b['field']}.forEach {{ line ->"] + self.call(ind + "    ", "Text", [
+                'text = "${line.quantity}× ${line.name}"'] + ([f"modifier = {mod}"] if mod else []) + self.text_style(n["style"])) + [f"{ind}}}"]
         if k == "text" and (n.get("bind") or n.get("key")):
             s = n["style"]
             if b := n.get("bind"):
