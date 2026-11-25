@@ -466,6 +466,29 @@ class StateModel:
         base = cfg.get(text.strip()) or (item and cfg.get(f"{item}.{auto}")) or cfg.get(auto) or auto
         return self.unique(base, taken)
 
+    def enum_key(self, en: str, j: int) -> str:
+        """L10n key of source text j of an enum; texts mapped to one existing domain case share the first key."""
+        e, names = self.enums[en], self.case_names[en]
+        if e.get("existing") and names.index(names[j]) != j:
+            k = self.enum_key(en, names.index(names[j]))
+            self._key_by_text.setdefault(e["cases"][j], k)
+            return k
+        return self.key(e["cases"][j], f"{en}.{names[j]}")
+
+    def title_cases(self, en: str) -> tuple[list, bool]:
+        """(case, key) per domain case of an existing enum, plus whether the list is exhaustive (domainCases)."""
+        e, names = self.enums[en], self.case_names[en]
+        out: dict = {}
+        for j in range(len(e.get("cases", []))):
+            if names[j] not in out and not re.fullmatch(r"case\d+", names[j]):
+                out[names[j]] = self.enum_key(en, j)
+        dc = e.get("domainCases") or []
+        for c in dc:
+            if c not in out:
+                out[c] = self.key(" ".join(_split_camel(c)).capitalize(), f"{en}.{c}")
+        order = [c for c in dc if c in out] + [c for c in out if c not in dc]
+        return [(c, out[c]) for c in order], bool(dc)
+
     def neutral(self, kind: str, idx: int | None = None) -> str:
         """Mockup-free sample text: `Store 1`, `Date 2`, `Text 3`..."""
         if idx is not None:
@@ -596,7 +619,7 @@ def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> St
             en, i = case_of[t]
             case = enum_cases[en][i]
             if enum_role(n) == "label":
-                n["key"] = st.key(t, f"{en}.{case}")
+                n["key"] = st.enum_key(en, i)
                 return
             if not any(f["name"] == en for f in st.fields):
                 taken.add(en)
@@ -604,8 +627,8 @@ def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> St
                 cur = e.get("current") or t
                 st.fields.append({"name": en, "type": "enum", "enum": en, "value": enum_cases[en][e["cases"].index(cur)]
                                   if cur in e["cases"] else case})
-            for j, ct in enumerate(st.enums[en]["cases"]):
-                st.key(ct, f"{en}.{enum_cases[en][j]}")
+            for j in range(len(st.enums[en]["cases"])):
+                st.enum_key(en, j)
             n["bind"] = {"scope": "state", "field": en, "type": "enum"}
             return
         if in_shell and len(w := t.split()) >= 2 and all(x[:1].isupper() for x in w) and not re.search(r"\d", t):
@@ -767,8 +790,8 @@ def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> St
         if not any(f["name"] == en for f in st.fields):
             taken.add(en)
             st.fields.append({"name": en, "type": "enum", "enum": en, "value": enum_cases[en][case_of[labs[cur]["text"].strip()][1]]})
-        for j, ct in enumerate(e["cases"]):
-            st.key(ct, f"{en}.{enum_cases[en][j]}")
+        for j in range(len(e["cases"])):
+            st.enum_key(en, j)
         n["tracker"] = {"enum": en, "field": en, "done": labs[0], "current": labs[cur], "pending": labs[-1], "scope": "state"}
         tracker_nodes.append(n)
 
@@ -853,8 +876,13 @@ def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> St
         refs(ir, outside, skip=anchor)
         for o in ovs:
             refs(o["node"], outside, skip=anchor)
-        both = inside & outside
-        move = inside - outside
+        names = {f["name"] for f in st.fields}
+        extra = set((cfgd or {}).get("fields", []) if isinstance(cfgd, dict) else [])
+        for fname in sorted(extra - names):
+            st.warnings.append(f"state: detail.fields lists '{fname}', which is not a root field")
+        extra &= names
+        both = (inside & outside) - extra
+        move = (inside - outside) | extra
         for fname in sorted(both):
             st.warnings.append(f"state: field '{fname}' is bound inside and outside the active-order block; it stays on the root")
         if not move:
@@ -867,6 +895,10 @@ def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> St
         taken.add(field)
         st.fields = [f for f in st.fields if f["name"] not in move]
         retarget(anchor, move)
+        if extra:   # moved from outside the block: texts bound there are guarded where they are rendered
+            retarget(ir, extra)
+            for o in ovs:
+                retarget(o["node"], extra)
         anchor["detail"] = {"field": field, "type": typ}
 
     split_detail()
@@ -1063,6 +1095,7 @@ class SwiftEmitter:
     # ------------------------------------------------------------ state mode (Swift)
     st = None
     item_var = None
+    in_detail = 0
 
     def emit(self, n: dict, ind: str = "") -> list[str]:
         st = self.st
@@ -1076,8 +1109,17 @@ class SwiftEmitter:
             return out
         if k == "box" and n.get("detail") and not n.get("_inDetail"):
             n["_inDetail"] = True
+            self.in_detail += 1
             out = [f"{ind}if let active = state.{n['detail']['field']} {{"] + self.emit(n, ind + "    ") + [f"{ind}}}"]
+            self.in_detail -= 1
             del n["_inDetail"]
+            return out
+        if k == "text" and not self.in_detail and not n.get("_guard") and (b := n.get("bind")) and b["scope"] == "detail":
+            n["_guard"] = True
+            self.in_detail += 1
+            out = [f"{ind}if let active = state.{st.detail['field']} {{"] + self.emit(n, ind + "    ") + [f"{ind}}}"]
+            self.in_detail -= 1
+            del n["_guard"]
             return out
         if k == "box" and n.get("picker"):
             return [f"{ind}Picker(selection: $tab) {{",
@@ -1202,7 +1244,7 @@ class SwiftEmitter:
     def enum_cases(self, en: str) -> list:
         cs = self.st.enums.get(en, {}).get("cases", [])
         names = self.st.case_names[en]
-        return [(names[i], self.st.key(t, f"{en}.{names[i]}")) for i, t in enumerate(cs)]
+        return [(names[i], self.st.enum_key(en, i)) for i, _ in enumerate(cs)]
 
     def screen_state(self, ir: dict, name: str) -> str:
         st = self.st
@@ -1300,14 +1342,12 @@ class SwiftEmitter:
             out += [f"    private var {en}Steps: [{ty}] {{ [" + ", ".join("." + c for c in steps) + "] }", "",
                     f"    private func {en}Rank(_ value: {ty}) -> Int {{ {en}Steps.firstIndex(of: value) ?? -1 }}", "",
                     f"    private func {en}Title(_ value: {ty}) -> LocalizedStringKey {{", "        switch value {"]
-            seen, first = set(), None
-            for c, k in self.enum_cases(en):
-                if c in seen or re.fullmatch(r"case\d+", c):
-                    continue
-                seen.add(c)
-                first = first or k
-                out.append(f'        case .{c}: "{k}"')
-            out += [f'        default: "{first}"  // TODO add a label key for the other cases of {ty}' if first else '        default: ""', "        }", "    }"]
+            pairs, exhaustive = st.title_cases(en)
+            out += [f'        case .{c}: "{k}"' for c, k in pairs]
+            if not exhaustive:
+                first = pairs[0][1] if pairs else ""
+                out.append(f'        default: "{first}"  // TODO list every case of {ty} in enums.{en}.domainCases')
+            out += ["        }", "    }"]
         if uses_money:
             loc = st.locale
             code = next((f["code"] for f in all_fields if f.get("code")), None) or next((f["code"] for g in st.groups for f in g["fields"] if f.get("code")), "EUR")
@@ -1600,6 +1640,8 @@ class ComposeEmitter(SwiftEmitter):
         return [f"{ind}{name}("] + [f"{ind}    {a}," for a in args] + [f"{ind})"]
 
     # ------------------------------------------------------------ state mode (Compose)
+    in_detail = 0
+
     def emit(self, n: dict, ind: str = "", extra: list[str] | None = None) -> list[str]:
         st = self.st
         if not st:
@@ -1612,8 +1654,17 @@ class ComposeEmitter(SwiftEmitter):
             return out
         if k == "box" and n.get("detail") and not n.get("_inDetail"):
             n["_inDetail"] = True
+            self.in_detail += 1
             out = [f"{ind}state.{n['detail']['field']}?.let {{ active ->"] + self.emit(n, ind + "    ", extra) + [f"{ind}}}"]
+            self.in_detail -= 1
             del n["_inDetail"]
+            return out
+        if k == "text" and not self.in_detail and not n.get("_guard") and (b := n.get("bind")) and b["scope"] == "detail":
+            n["_guard"] = True
+            self.in_detail += 1
+            out = [f"{ind}state.{st.detail['field']}?.let {{ active ->"] + self.emit(n, ind + "    ", extra) + [f"{ind}}}"]
+            self.in_detail -= 1
+            del n["_guard"]
             return out
         if k == "box" and n.get("picker"):
             m = len(st.tabs["cases"])
@@ -1721,7 +1772,7 @@ class ComposeEmitter(SwiftEmitter):
     def enum_cases(self, en: str) -> list:
         cs = self.st.enums.get(en, {}).get("cases", [])
         names = self.st.case_names[en]
-        return [(names[i], self.st.key(t, f"{en}.{names[i]}")) for i, t in enumerate(cs)]
+        return [(names[i], self.st.enum_key(en, i)) for i, _ in enumerate(cs)]
 
     def enum_type(self, en: str) -> str:
         e = self.st.enums.get(en, {})
@@ -1840,14 +1891,12 @@ class ComposeEmitter(SwiftEmitter):
                 out += [f"/** Tracker steps in display order (a subset of `{ty}`). */",
                         f"private val {en}Steps = listOf(" + ", ".join(f"{ty}.{self.enum_case(en, c)}" for c in st.steps.get(en, [])) + ")", "",
                         "@StringRes", f"private fun {en}Title(value: {ty}): Int = when (value) {{"]
-                seen, first = set(), None
-                for c, k in self.enum_cases(en):
-                    if c in seen or re.fullmatch(r"case\d+", c):
-                        continue
-                    seen.add(c)
-                    first = first or k
-                    out.append(f"    {ty}.{self.enum_case(en, c)} -> R.string.{android_res(k)}")
-                out += [f"    else -> R.string.{android_res(first)}  // TODO add a label key for the other cases of {ty}" if first else "    else -> 0", "}", ""]
+                pairs, exhaustive = st.title_cases(en)
+                out += [f"    {ty}.{self.enum_case(en, c)} -> R.string.{android_res(k)}" for c, k in pairs]
+                if not exhaustive:
+                    first = pairs[0][1] if pairs else None
+                    out.append(f"    else -> R.string.{android_res(first)}  // TODO list every case of {ty} in enums.{en}.domainCases" if first else "    else -> 0")
+                out += ["}", ""]
         if st.tabs:
             out.append(f"enum class {st.name}Tab(@StringRes val title: Int) {{")
             out += [f"    {self.kt_case(c['case'])}(R.string.{android_res(c['key'])})," for c in st.tabs["cases"]]

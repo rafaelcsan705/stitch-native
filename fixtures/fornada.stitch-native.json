@@ -25,9 +25,17 @@
         "caseMap": {
           "Recebida": "placed",
           "A preparar": "preparing",
-          "No forno": "ready",
-          "Pronta": "delivered"
-        }
+          "No forno": "preparing",
+          "Pronta": "ready"
+        },
+        "domainCases": [
+          "placed",
+          "preparing",
+          "ready",
+          "outForDelivery",
+          "delivered",
+          "cancelled"
+        ]
       }
     },
     "fields": {
@@ -52,6 +60,13 @@
     "rename": {
       "Order": "OrderRow",
       "orderRows": "orders"
+    },
+    "detail": {
+      "fields": [
+        "pickupTitle",
+        "pickupCode",
+        "estimatedTime"
+      ]
     }
   }
 }

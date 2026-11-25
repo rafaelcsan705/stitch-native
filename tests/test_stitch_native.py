@@ -71,11 +71,16 @@ class StateModeTests(unittest.TestCase):
                      ".font(.system(.body", "ordersList.selectedItems", "var activeOrder: ActiveOrder?",
                      "if let active = state.activeOrder {", "ForEach(statusSteps, id: \\.self)", "ForEach(active.lines)",
                      "struct Line: Identifiable", "price: Money", "active.price.formatted()", "Money(cents: 1240)",
-                     "let storeName: String", "statusRank(step) < statusRank(active.status)", "default: \"ordersList.status.placed\""):
+                     "let storeName: String", "statusRank(step) < statusRank(active.status)",
+                     "private var statusSteps: [Order.Status] { [.placed, .preparing, .ready] }",
+                     'case .cancelled: "ordersList.status.cancelled"', 'case .outForDelivery: "ordersList.status.outForDelivery"',
+                     "let pickupCode: String", "Text(active.pickupTitle)", "Text(active.estimatedTime)"):
             self.assertIn(must, out)
         self.assertNotIn("ViewModel", out)
         self.assertNotIn("UseCase", out)
         self.assertNotIn("lojaAlcobaca", out)
+        self.assertNotIn("default:", out)
+        self.assertEqual(out.count("if let active = state.activeOrder {"), 4)
         for never in ("enum OrderStatus", "// cents", "private func money", "Status.allCases", "Sample data copied"):
             self.assertNotIn(never, out)
 
@@ -86,8 +91,11 @@ class StateModeTests(unittest.TestCase):
                      "stringResource(R.string.", "UI_MODE_NIGHT_YES",
                      "List<Line>", "state.activeOrder?.let { active ->", "statusSteps.forEach { step ->", "active.lines.forEach",
                      "val storeName: String", "val price: Money", "Money(1240L)", "active.price.formatted()",
-                     "private val statusSteps = listOf(OrderStatus.Placed", "private fun statusTitle(value: OrderStatus): Int"):
+                     "private fun statusTitle(value: OrderStatus): Int",
+                     "OrderStatus.Cancelled -> R.string.orders_list_status_cancelled", "text = active.pickupCode",
+                     "private val statusSteps = listOf(OrderStatus.Placed, OrderStatus.Preparing, OrderStatus.Ready)"):
             self.assertIn(must, out)
+        self.assertNotIn("else ->", out.split("private fun statusTitle")[1].split("\n}")[0])
         for never in ("joinToString", "lojaAlcobaca", "enum class OrderStatus", "private fun money", "// cents"):
             self.assertNotIn(never, out)
         for must in ():
@@ -123,6 +131,29 @@ class StateModeTests(unittest.TestCase):
         self.assertIn("struct OrderRow:", out)
         self.assertIn("var orders: [OrderRow]", out)
         self.assertNotIn("enum Status", out)
+
+    def test_two_texts_one_domain_case_dedupe_steps(self):
+        out = self.gen("swiftui", "OrdersListView")  # fixture: "A preparar" and "No forno" are both .preparing
+        self.assertIn("{ [.placed, .preparing, .ready] }", out)
+        self.assertEqual(out.count("case .preparing:"), 1)
+        self.assertNotIn("preparing2", out)
+
+    def test_without_domain_cases_keeps_a_flagged_default(self):
+        cfg = {"state": {"enums": {"status": {"existing": True, "type": "Order.Status", "kotlinType": "OrderStatus",
+                                              "cases": ["Recebida", "A preparar"], "caseMap": {"Recebida": "placed", "A preparar": "preparing"}}}}}
+        out = self.gen("swiftui", "OrdersListView", cfg_dict=cfg)
+        self.assertIn("default:", out)
+        self.assertIn("domainCases", out)
+
+    def test_detail_fields_moves_root_fields_and_guards_outside_use(self):
+        cfg = {"state": {"fields": {"Tempo estimado: 18 min": "eta"}, "detail": {"fields": ["eta", "nope"]}}}
+        sw = self.gen("swiftui", "OrdersListView", cfg_dict=cfg)
+        self.assertIn("let eta: String", sw)
+        self.assertNotIn("var eta: String", sw)
+        self.assertIn("Text(active.eta)", sw)
+        kt = self.gen("compose", "OrdersListScreen", cfg_dict=cfg)
+        self.assertIn("text = active.eta", kt)
+        self.assertEqual(kt.count("state.activeOrder?.let { active ->"), 2)
 
     def test_detail_can_be_disabled_and_renamed(self):
         off = self.gen("swiftui", "OrdersListView", cfg_dict={"state": {"detail": False}})

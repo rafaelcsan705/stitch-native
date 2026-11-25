@@ -20,6 +20,7 @@ struct OrdersListViewState: Equatable {
     }
 
     struct ActiveOrder: Equatable {
+        let estimatedTime: String
         let orderTitle: String
         let status: Order.Status
         let pickupWindow: String
@@ -28,15 +29,14 @@ struct OrdersListViewState: Equatable {
         let readyAt: String
         let lines: [Line]
         let price: Money
+        let pickupTitle: String
+        let pickupCode: String
     }
 
     var orders: [OrderRow]
     var activeCount: String
-    var estimatedTime: String
     var recordCount: String
     var brandName: String
-    var pickupTitle: String
-    var pickupCode: String
     var activeOrder: ActiveOrder?
 }
 
@@ -49,12 +49,9 @@ extension OrdersListViewState {
             .init(id: UUID(), number: "#0941", date: "Date 3", price: Money(cents: 600), title: "Title 3", itemsSummary: "Text 3")
         ],
         activeCount: "1 active",
-        estimatedTime: "Text 2",
         recordCount: "Text 4",
         brandName: "Brand",
-        pickupTitle: "Text 5",
-        pickupCode: "Text 6",
-        activeOrder: .init(orderTitle: "Text 3", status: .preparing, pickupWindow: "Date 1", storeName: "Main store", placedAt: "Date 2", readyAt: "Date 3", lines: [.init(quantity: 2, name: "Item A"), .init(quantity: 1, name: "Item B"), .init(quantity: 4, name: "Item C")], price: Money(cents: 1240))
+        activeOrder: .init(estimatedTime: "Text 2", orderTitle: "Text 3", status: .preparing, pickupWindow: "Date 1", storeName: "Main store", placedAt: "Date 2", readyAt: "Date 3", lines: [.init(quantity: 2, name: "Item A"), .init(quantity: 1, name: "Item B"), .init(quantity: 4, name: "Item C")], price: Money(cents: 1240), pickupTitle: "Text 5", pickupCode: "Text 6")
     )
 }
 
@@ -119,9 +116,11 @@ struct OrdersListView: View {
                                     .font(.system(.caption, weight: .semibold))
                                     .foregroundStyle(StitchTheme.onSurfaceVariant)
                                 Spacer(minLength: 0)
-                                Text(state.estimatedTime)
-                                    .font(.system(.caption2, weight: .medium))
-                                    .foregroundStyle(StitchTheme.secondary)
+                                if let active = state.activeOrder {
+                                    Text(active.estimatedTime)
+                                        .font(.system(.caption2, weight: .medium))
+                                        .foregroundStyle(StitchTheme.secondary)
+                                }
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.leading, 2)
@@ -421,11 +420,13 @@ struct OrdersListView: View {
                     .frame(width: 48, height: 48)
                     .background(StitchTheme.primaryFixed, in: Capsule())
                     .padding(.bottom, 12)  // margin
-                    Text(state.pickupTitle)
-                        .font(.system(.body, weight: .bold))
-                        .foregroundStyle(StitchTheme.primary)
-                        .multilineTextAlignment(.center)
-                        .padding(.bottom, 4)  // margin
+                    if let active = state.activeOrder {
+                        Text(active.pickupTitle)
+                            .font(.system(.body, weight: .bold))
+                            .foregroundStyle(StitchTheme.primary)
+                            .multilineTextAlignment(.center)
+                            .padding(.bottom, 4)  // margin
+                    }
                     Text("ordersList.text9")
                         .font(.system(.footnote, weight: .regular))
                         .foregroundStyle(StitchTheme.onSurfaceVariant)
@@ -445,11 +446,13 @@ struct OrdersListView: View {
                     .padding(12)
                     .background(StitchTheme.surfaceContainerLow, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .padding(.bottom, 16)  // margin
-                    Text(state.pickupCode)
-                        .font(.system(.subheadline, weight: .bold))
-                        .foregroundStyle(StitchTheme.primary)
-                        .multilineTextAlignment(.center)
-                        .padding(.bottom, 16)  // margin
+                    if let active = state.activeOrder {
+                        Text(active.pickupCode)
+                            .font(.system(.subheadline, weight: .bold))
+                            .foregroundStyle(StitchTheme.primary)
+                            .multilineTextAlignment(.center)
+                            .padding(.bottom, 16)  // margin
+                    }
                     Button { showPickupModal = false } label: {
                         Text("ordersList.text10")
                             .font(.system(.subheadline, weight: .bold))
@@ -600,7 +603,7 @@ struct OrdersListView: View {
     }
 
     /// Tracker steps in display order (a subset of `Order.Status`).
-    private var statusSteps: [Order.Status] { [.placed, .preparing, .ready, .delivered] }
+    private var statusSteps: [Order.Status] { [.placed, .preparing, .ready] }
 
     private func statusRank(_ value: Order.Status) -> Int { statusSteps.firstIndex(of: value) ?? -1 }
 
@@ -609,8 +612,9 @@ struct OrdersListView: View {
         case .placed: "ordersList.status.placed"
         case .preparing: "ordersList.status.preparing"
         case .ready: "ordersList.status.ready"
+        case .outForDelivery: "ordersList.status.outForDelivery"
         case .delivered: "ordersList.status.delivered"
-        default: "ordersList.status.placed"  // TODO add a label key for the other cases of Order.Status
+        case .cancelled: "ordersList.status.cancelled"
         }
     }
 }

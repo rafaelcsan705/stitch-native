@@ -32,11 +32,8 @@ import java.util.Locale
 data class OrdersListScreenState(
     val orders: List<OrderRow>,
     val activeCount: String,
-    val estimatedTime: String,
     val recordCount: String,
     val brandName: String,
-    val pickupTitle: String,
-    val pickupCode: String,
     val activeOrder: ActiveOrder?,
 ) {
     @Immutable
@@ -50,6 +47,7 @@ data class OrdersListScreenState(
     )
     @Immutable
     data class ActiveOrder(
+        val estimatedTime: String,
         val orderTitle: String,
         val status: OrderStatus,
         val pickupWindow: String,
@@ -58,6 +56,8 @@ data class OrdersListScreenState(
         val readyAt: String,
         val lines: List<Line>,
         val price: Money,
+        val pickupTitle: String,
+        val pickupCode: String,
     )
     @Immutable
     data class Line(val quantity: Int, val name: String)
@@ -71,12 +71,10 @@ data class OrdersListScreenState(
                 OrderRow(id = "3", number = "#0941", date = "Date 3", price = Money(600L), title = "Title 3", itemsSummary = "Text 3"),
             ),
             activeCount = "1 active",
-            estimatedTime = "Text 2",
             recordCount = "Text 4",
             brandName = "Brand",
-            pickupTitle = "Text 5",
-            pickupCode = "Text 6",
             activeOrder = ActiveOrder(
+                estimatedTime = "Text 2",
                 orderTitle = "Text 3",
                 status = OrderStatus.Preparing,
                 pickupWindow = "Date 1",
@@ -85,21 +83,24 @@ data class OrdersListScreenState(
                 readyAt = "Date 3",
                 lines = listOf(Line(2, "Item A"), Line(1, "Item B"), Line(4, "Item C")),
                 price = Money(1240L),
+                pickupTitle = "Text 5",
+                pickupCode = "Text 6",
             ),
         )
     }
 }
 
 /** Tracker steps in display order (a subset of `OrderStatus`). */
-private val statusSteps = listOf(OrderStatus.Placed, OrderStatus.Preparing, OrderStatus.Ready, OrderStatus.Delivered)
+private val statusSteps = listOf(OrderStatus.Placed, OrderStatus.Preparing, OrderStatus.Ready)
 
 @StringRes
 private fun statusTitle(value: OrderStatus): Int = when (value) {
     OrderStatus.Placed -> R.string.orders_list_status_placed
     OrderStatus.Preparing -> R.string.orders_list_status_preparing
     OrderStatus.Ready -> R.string.orders_list_status_ready
+    OrderStatus.OutForDelivery -> R.string.orders_list_status_out_for_delivery
     OrderStatus.Delivered -> R.string.orders_list_status_delivered
-    else -> R.string.orders_list_status_placed  // TODO add a label key for the other cases of OrderStatus
+    OrderStatus.Cancelled -> R.string.orders_list_status_cancelled
 }
 
 enum class OrdersListScreenTab(@StringRes val title: Int) {
@@ -298,12 +299,14 @@ fun OrdersListScreen(
                                         fontWeight = FontWeight.W600,
                                         color = StitchTheme.onSurfaceVariant,
                                     )
-                                    Text(
-                                        text = state.estimatedTime,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.W500,
-                                        color = StitchTheme.secondary,
-                                    )
+                                    state.activeOrder?.let { active ->
+                                        Text(
+                                            text = active.estimatedTime,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.W500,
+                                            color = StitchTheme.secondary,
+                                        )
+                                    }
                                 }
                                 state.activeOrder?.let { active ->
                                     Column(modifier = Modifier.fillMaxWidth().background(StitchTheme.surfaceContainerLowest, RoundedCornerShape(8.dp)).padding(16.dp), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
@@ -538,14 +541,16 @@ fun OrdersListScreen(
                                     contentDescription = null,
                                 )
                             }
-                            Text(
-                                text = state.pickupTitle,
-                                modifier = Modifier.padding(bottom = 4.dp),
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.W700,
-                                color = StitchTheme.primary,
-                                textAlign = TextAlign.Center,
-                            )
+                            state.activeOrder?.let { active ->
+                                Text(
+                                    text = active.pickupTitle,
+                                    modifier = Modifier.padding(bottom = 4.dp),
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.W700,
+                                    color = StitchTheme.primary,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
                             Text(
                                 text = stringResource(R.string.orders_list_text9),
                                 modifier = Modifier.padding(bottom = 16.dp),
@@ -559,14 +564,16 @@ fun OrdersListScreen(
                                     Box(modifier = Modifier.fillMaxWidth())  // TODO svg
                                 }
                             }
-                            Text(
-                                text = state.pickupCode,
-                                modifier = Modifier.padding(bottom = 16.dp),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.W700,
-                                color = StitchTheme.primary,
-                                textAlign = TextAlign.Center,
-                            )
+                            state.activeOrder?.let { active ->
+                                Text(
+                                    text = active.pickupCode,
+                                    modifier = Modifier.padding(bottom = 16.dp),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.W700,
+                                    color = StitchTheme.primary,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
                             Text(
                                 text = stringResource(R.string.orders_list_text10),
                                 modifier = Modifier.clickable { showPickupModal = false }.fillMaxWidth().height(44.dp).background(StitchTheme.primary, CircleShape),
