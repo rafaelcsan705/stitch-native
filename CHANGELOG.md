@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.2 — 2026-11-25
 
 - **Centred containers (`mx-auto`).** `mx-auto` / `m-auto` were dropped, so a `max-w-* mx-auto` container (the usual Stitch page wrapper, bottom nav, floating bar) sat on the leading edge on wide screens. Now: SwiftUI adds `.frame(maxWidth: .infinity)`, Compose adds `fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally)` before `widthIn(max)`, HTML adds `margin-left/right: auto`. Found by rendering the HTML goldens in a browser.
 - **Named max widths.** `max-w-xs` … `max-w-7xl` (Tailwind defaults, 320–1280 px) are read; before, only `max-w-[...]` was.
