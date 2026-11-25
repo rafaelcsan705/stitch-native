@@ -38,6 +38,24 @@ python3 stitch_native.py ir            screen.html > screen.ir.json
 python3 stitch_native.py swiftui screen.html --map ds-map.json
 ```
 
+## MCP server
+
+`stitch_native_mcp.py` exposes the converter to any MCP client (stdio, no dependencies).
+
+```bash
+claude mcp add stitch-native -- python3 /path/to/stitch_native_mcp.py
+```
+
+| Tool | Does |
+|---|---|
+| `extract_tokens` | Theme file for `swiftui` or `compose` |
+| `stitch_to_ir` | Layout IR as JSON |
+| `stitch_to_swiftui` | SwiftUI view + off-token report |
+| `stitch_to_compose` | Compose composable + off-token report |
+
+Each tool takes `html` (the export) or `path`; the code tools also take `name` and `map`.
+Pairs well with the official Stitch MCP: fetch the screen HTML there, convert here.
+
 ## Example
 
 `fixtures/match-stats.html` → [`examples/MatchStatsView.swift`](examples/MatchStatsView.swift) and [`examples/MatchStatsScreen.kt`](examples/MatchStatsScreen.kt).
@@ -50,7 +68,7 @@ Prototype. Known gaps:
 - SwiftUI drops the font weight when a family token and a `text-*` size class share an element.
 - Absolute positioning, animations and `hover:` states are ignored.
 
-Roadmap: MCP server (`extract_tokens`, `stitch_to_ir`, `ir_to_swiftui`, `ir_to_compose`, `visual_diff`) and a Claude skill.
+Roadmap: `visual_diff` tool (render vs Stitch screenshot) and a Claude skill.
 
 ## License
 
