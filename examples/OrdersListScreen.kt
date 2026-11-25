@@ -34,15 +34,15 @@ data class OrdersListScreenState(
     val preparacao: String,
     val tempoEstimado: String,
     val encomenda: String,
+    val status: OrderStatus,
     val date: String,
-    val padariaLerias: String,
+    val lojaAlcobaca: String,
     val date2: String,
     val date3: String,
-    val value: String,
-    val value2: String,
-    val value3: String,
+    val lines: List<Line>,
     val price: Long,  // cents
     val registos: String,
+    val brandName: String,
     val levantamento: String,
     val lerAlc: String,
 ) {
@@ -55,6 +55,8 @@ data class OrdersListScreenState(
         val title: String,
         val paoAlentejano: String,
     )
+    @Immutable
+    data class Line(val quantity: Int, val name: String)
 
     companion object {
         /** Sample data copied from the export; use it in previews and tests. */
@@ -67,19 +69,26 @@ data class OrdersListScreenState(
             preparacao = "1 Em preparação",
             tempoEstimado = "Tempo estimado: 18 min",
             encomenda = "Encomenda #1042",
+            status = OrderStatus.Preparar,
             date = "Levantamento hoje · 10:30",
-            padariaLerias = "Padaria Lérias — Loja Alcobaça (Balcão 2)",
+            lojaAlcobaca = "Padaria Lérias — Loja Alcobaça (Balcão 2)",
             date2 = "09:45",
             date3 = "~10:30",
-            value = "2×",
-            value2 = "1×",
-            value3 = "4×",
+            lines = listOf(Line(2, "Pão de Ló Tradicional"), Line(1, "Broa de Milho"), Line(4, "Pastéis de Nata")),
             price = 1240L,
             registos = "3 registos",
+            brandName = "Padaria Lérias",
             levantamento = "Levantamento #1042",
             lerAlc = "LER-1042-ALC",
         )
     }
+}
+
+enum class OrderStatus(@StringRes val title: Int) {
+    Recebida(R.string.orders_list_status_recebida),
+    Preparar(R.string.orders_list_status_preparar),
+    NoForno(R.string.orders_list_status_no_forno),
+    Pronta(R.string.orders_list_status_pronta),
 }
 
 enum class OrdersListScreenTab(@StringRes val title: Int) {
@@ -111,7 +120,7 @@ fun OrdersListScreen(
                         }
                         Column(modifier = Modifier, verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
                             Text(
-                                text = stringResource(R.string.orders_list_padaria_lerias),
+                                text = state.brandName,
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.W700,
                                 color = StitchTheme.primary,
@@ -307,7 +316,7 @@ fun OrdersListScreen(
                                             Column(modifier = Modifier.fillMaxWidth().width(8.dp).height(8.dp).background(StitchTheme.secondary, CircleShape), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
                                             }
                                             Text(
-                                                text = stringResource(R.string.orders_list_preparar),
+                                                text = stringResource(state.status.title),
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.W600,
                                                 color = StitchTheme.onSecondaryFixedVariant,
@@ -328,7 +337,7 @@ fun OrdersListScreen(
                                                 color = StitchTheme.onSurface,
                                             )
                                             Text(
-                                                text = state.padariaLerias,
+                                                text = state.lojaAlcobaca,
                                                 fontSize = 13.sp,
                                                 fontWeight = FontWeight.W400,
                                                 color = StitchTheme.onSurfaceVariant,
@@ -347,7 +356,7 @@ fun OrdersListScreen(
                                                     )
                                                 }
                                                 Text(
-                                                    text = stringResource(R.string.orders_list_recebida),
+                                                    text = stringResource(R.string.orders_list_status_recebida),
                                                     modifier = Modifier.padding(top = 6.dp),
                                                     fontSize = 11.sp,
                                                     fontWeight = FontWeight.W600,
@@ -355,7 +364,7 @@ fun OrdersListScreen(
                                                 )
                                                 Text(
                                                     text = state.date2,
-                                                    fontSize = 11.sp,
+                                                    fontSize = 10.sp,
                                                     fontWeight = FontWeight.W500,
                                                     color = StitchTheme.onSurfaceVariant,
                                                 )
@@ -370,15 +379,15 @@ fun OrdersListScreen(
                                                     )
                                                 }
                                                 Text(
-                                                    text = stringResource(R.string.orders_list_preparar),
+                                                    text = stringResource(R.string.orders_list_status_preparar),
                                                     modifier = Modifier.padding(top = 6.dp),
                                                     fontSize = 11.sp,
                                                     fontWeight = FontWeight.W600,
                                                     color = StitchTheme.secondary,
                                                 )
                                                 Text(
-                                                    text = stringResource(R.string.orders_list_no_forno),
-                                                    fontSize = 11.sp,
+                                                    text = stringResource(R.string.orders_list_status_no_forno),
+                                                    fontSize = 10.sp,
                                                     fontWeight = FontWeight.W500,
                                                     color = StitchTheme.secondary,
                                                 )
@@ -393,7 +402,7 @@ fun OrdersListScreen(
                                                     )
                                                 }
                                                 Text(
-                                                    text = stringResource(R.string.orders_list_pronta),
+                                                    text = stringResource(R.string.orders_list_status_pronta),
                                                     modifier = Modifier.padding(top = 6.dp),
                                                     fontSize = 11.sp,
                                                     fontWeight = FontWeight.W500,
@@ -401,7 +410,7 @@ fun OrdersListScreen(
                                                 )
                                                 Text(
                                                     text = state.date3,
-                                                    fontSize = 11.sp,
+                                                    fontSize = 10.sp,
                                                     fontWeight = FontWeight.W500,
                                                     color = StitchTheme.outline,
                                                 )
@@ -410,50 +419,18 @@ fun OrdersListScreen(
                                     }
                                     Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).background(StitchTheme.surfaceContainerLowest, RoundedCornerShape(8.dp)).padding(top = 4.dp, bottom = 8.dp), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
                                         Text(
-                                            text = stringResource(R.string.orders_list_itens_selecionados).uppercase(),
+                                            text = stringResource(R.string.orders_list_selected_items).uppercase(),
                                             modifier = Modifier.padding(bottom = 4.dp),
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.W500,
                                             color = StitchTheme.onSurfaceVariant,
                                         )
-                                        Column(modifier = Modifier, verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
-                                            Text(
-                                                text = state.value,
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.W600,
-                                                color = StitchTheme.primary,
-                                            )
-                                            Text(
-                                                text = stringResource(R.string.orders_list_pao_lo_tradicional),
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.W400,
-                                                color = StitchTheme.onSurface,
-                                            )
-                                            Text(
-                                                text = state.value2,
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.W600,
-                                                color = StitchTheme.primary,
-                                            )
-                                            Text(
-                                                text = stringResource(R.string.orders_list_broa_milho),
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.W400,
-                                                color = StitchTheme.onSurface,
-                                            )
-                                            Text(
-                                                text = state.value3,
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.W600,
-                                                color = StitchTheme.primary,
-                                            )
-                                            Text(
-                                                text = stringResource(R.string.orders_list_pasteis_nata),
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.W400,
-                                                color = StitchTheme.onSurface,
-                                            )
-                                        }
+                                        Text(
+                                            text = state.lines.joinToString(", ") { "${it.quantity}× ${it.name}" },
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.W400,
+                                            color = StitchTheme.onSurface,
+                                        )
                                     }
                                     Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp).background(StitchTheme.surfaceContainerLow).padding(top = 8.dp, bottom = 8.dp, start = 16.dp, end = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                         Column(modifier = Modifier, verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
@@ -507,6 +484,7 @@ fun OrdersListScreen(
                                         color = StitchTheme.onSurfaceVariant,
                                     )
                                 }
+                                // unbounded list: inside a scrolling Column; move to LazyColumn items(state.orders, key = { it.id }) when it grows
                                 state.orders.forEach { order ->
                                     key(order.id) {
                                         Column(modifier = Modifier.fillMaxWidth().background(StitchTheme.surfaceContainerLowest, RoundedCornerShape(8.dp)).padding(16.dp), verticalArrangement = Arrangement.Top, horizontalAlignment = Alignment.Start) {
@@ -673,7 +651,7 @@ fun OrdersListScreen(
 }
 
 private fun money(cents: Long): String =
-    NumberFormat.getCurrencyInstance(Locale.forLanguageTag("kotlin"))
+    NumberFormat.getCurrencyInstance(Locale.forLanguageTag("pt"))
         .apply { currency = Currency.getInstance("EUR") }
         .format(cents / 100.0)
 

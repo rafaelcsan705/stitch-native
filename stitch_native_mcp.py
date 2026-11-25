@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import stitch_native as sn  # noqa: E402
 
 PROTOCOL = "2025-06-18"
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 SRC = {
     "html": {"type": "string", "description": "Stitch screen HTML (the export, including the tailwind-config script)."},

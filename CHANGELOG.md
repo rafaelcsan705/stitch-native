@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 — 2026-11-25
+- Dynamic Type: font sizes map to text styles (`.system(.body, weight:)`, `.custom(…, relativeTo:)` for custom families); px sizes are parsed.
+- State mode: order lines (`N× name`) become `lines: [Line]` with a `Line` struct / data class.
+- State mode: `state.enums` turns status trackers and chips into an enum (`OrderStatus`) with localized titles.
+- State mode: `state.brand` binds brand texts to `brandName`; a "Brand — Store" text is named after the store. Brand-like shell text gives a warning.
+- State mode: `state.key_over` overrides localization keys by source text or auto key.
+- Swift wraps repeated rows in `LazyVStack`; Compose marks where to move to `LazyColumn`.
+- Fix: the money locale comes from the page's `<html lang>`, not from the target name.
+
 ## 0.4.0 — 2026-11-25
 - `--mode state` (CLI and MCP `mode` argument): a stateless screen fed by a generated State struct/data class with a `.sample` copied from the export.
   - Repeated rows become `ForEach` / `forEach { key(id) }` over Identifiable items; tabs become a segmented `Picker` / `SingleChoiceSegmentedButtonRow`.

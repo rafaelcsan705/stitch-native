@@ -225,6 +225,8 @@ def resolve_classes(classes: list[str], style: str, th: Theme, warn: list) -> di
                 s["fontToken"] = v
             elif v in TW_SIZES:
                 s["fontSize"] = TW_SIZES[v]
+            elif px := re.fullmatch(r"\[(\d+(?:\.\d+)?)px\]", v):
+                s["fontSize"] = float(px.group(1))
             elif col := th.color(v):
                 s["color"] = col
             else:
@@ -398,6 +400,15 @@ def _leaves(n: dict) -> list[dict]:
     return [x for c in n.get("children", []) for x in _leaves(c)]
 
 
+TEXT_STYLES = [(34, "largeTitle"), (28, "title"), (22, "title2"), (20, "title3"), (17, "body"),
+               (16, "callout"), (15, "subheadline"), (13, "footnote"), (12, "caption"), (11, "caption2")]
+
+
+def text_style_for(size: float) -> str:
+    """Nearest Dynamic Type text style, so fonts scale with the user's setting."""
+    return min(TEXT_STYLES, key=lambda t: (abs(t[0] - size), -t[0]))[1]
+
+
 class StateModel:
     """What `extract_state` found: fields, repeated groups, keys, callbacks, tabs. Emitters read it."""
 
@@ -411,6 +422,9 @@ class StateModel:
         self.locale = sc.get("locale") or (lang or "en-US").replace("-", "_")
         self.timezone = sc.get("timezone")
         self.types = sc.get("types", {}) or {}
+        self.key_over = sc.get("keys", {}) or {}      # source text or auto key -> final key
+        self.brand = set(sc.get("brand", []) or [])   # brand texts: bound to state.brandName, never baked in
+        self.enums = sc.get("enums", {}) or {}        # name -> {cases: [source texts], type?, current?}
         self.fields: list[dict] = []        # top-level: {name, type, value, cents?, code?}
         self.groups: list[dict] = []        # {item, collection, fields: [...], rows: [[values]], handler}
         self.keys: dict[str, str] = {}      # key -> source text
@@ -431,7 +445,17 @@ class StateModel:
     def key(self, text: str, hint: str | None = None) -> str:
         if text in self._key_by_text and not hint:
             return self._key_by_text[text]
+        if text in self.key_over:
+            k = self.key_over[text]
+            self.keys[k] = text
+            self._key_by_text.setdefault(text, k)
+            return k
         slug = hint or _lower_camel(_words(text)[:3]) or "text"
+        if (auto := f"{self.prefix}.{slug}") in self.key_over:
+            k = self.key_over[auto]
+            self.keys[k] = text
+            self._key_by_text.setdefault(text, k)
+            return k
         k, i = f"{self.prefix}.{slug}", 2
         while k in self.keys and self.keys[k] != text:
             k, i = f"{self.prefix}.{slug}{i}", i + 1
@@ -472,15 +496,67 @@ def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> St
     st = StateModel(name, cfg, lang)
     ovs = ir.get("overlays", [])
     taken: set = set()
+    parent: dict = {}
+
+    def link(n: dict, p: dict | None):
+        parent[id(n)] = p
+        for c in n.get("children", []) + ([n["content"]] if n.get("content") else []):
+            link(c, n)
+
+    link(ir, None)
+    for o in ovs:
+        link(o["node"], None)
+    case_of = {t: (en, i) for en, e in st.enums.items() for i, t in enumerate(e.get("cases", []))}
+    enum_cases = {en: [_lower_camel(_words(t)) or f"case{i + 1}" for i, t in enumerate(e.get("cases", []))]
+                  for en, e in st.enums.items()}
+
+    def enum_role(n: dict) -> str:
+        # nearest ancestor holding 2+ case texts: all distinct = tracker labels; a repeat = the status chip
+        p = parent.get(id(n))
+        while p is not None:
+            cs = [x["text"].strip() for x in _leaves(p) if x["kind"] == "text" and x["text"].strip() in case_of]
+            if len(cs) >= 2:
+                return "label" if len(cs) == len(set(cs)) else "chip"
+            p = parent.get(id(p))
+        return "chip"
 
     def mark_text(n: dict, scope: str, ftaken: set, fields: list, in_shell: bool):
         t = n["text"].strip()
         if not re.search(r"[A-Za-z0-9À-ÿ]", t):
             n["verbatim"] = True
             return
+        if t in st.brand:
+            if not any(f["name"] == "brandName" for f in st.fields):
+                taken.add("brandName")
+                st.fields.append({"name": "brandName", "type": "string", "value": t})
+            n["bind"] = {"scope": "state", "field": "brandName", "type": "string"}
+            return
+        if t in case_of and scope == "state":
+            en, i = case_of[t]
+            case = enum_cases[en][i]
+            if enum_role(n) == "label":
+                n["key"] = st.key(t, f"{en}.{case}")
+                return
+            if not any(f["name"] == en for f in st.fields):
+                taken.add(en)
+                e = st.enums[en]
+                cur = e.get("current") or t
+                st.fields.append({"name": en, "type": "enum", "enum": en, "value": enum_cases[en][e["cases"].index(cur)]
+                                  if cur in e["cases"] else case})
+            for j, ct in enumerate(st.enums[en]["cases"]):
+                st.key(ct, f"{en}.{enum_cases[en][j]}")
+            n["bind"] = {"scope": "state", "field": en, "type": "enum"}
+            return
+        if in_shell and len(w := t.split()) >= 2 and all(x[:1].isupper() for x in w) and not re.search(r"\d", t):
+            st.warnings.append(f"state: '{t}' in the top/bottom bar looks like a brand; list it in state.brand to bind it")
         if not in_shell and re.search(r"\d", t):
             v = _value(t)
-            fname = st.unique(_field_base(t), ftaken)
+            base = t
+            for b in sorted(st.brand, key=len, reverse=True):   # "Brand — Store" names the field after the store
+                if t.startswith(b) and t[len(b):].strip(" —-·|,"):
+                    base = t[len(b):].strip(" —-·|,")
+                    break
+            fname = st.unique(_field_base(base), ftaken)
             fields.append({"name": fname, **v})
             n["bind"] = {"scope": scope, "field": fname, "type": v["type"]}
         else:
@@ -583,6 +659,23 @@ def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> St
         st.groups.append(g)
         return True
 
+    def order_lines(n: dict) -> bool:
+        kids = n.get("children", [])
+        if len(kids) < 4 or len(kids) % 2 or any(k["kind"] != "text" for k in kids):
+            return False
+        if not all(re.fullmatch(r"\d+\s*[×x]", kids[i]["text"].strip()) for i in range(0, len(kids), 2)):
+            return False
+        vals = [{"quantity": int(re.match(r"\d+", kids[i]["text"].strip()).group()),
+                 "name": kids[i + 1]["text"].strip().rstrip(",;").strip()} for i in range(0, len(kids), 2)]
+        fname = st.unique("lines", taken)
+        st.fields.append({"name": fname, "type": "lines", "value": vals})
+        tpl = dict(kids[1])
+        n.clear()
+        n.update(tpl)
+        n["text"] = ", ".join(f"{v['quantity']}× {v['name']}" for v in vals)
+        n["bind"] = {"scope": "state", "field": fname, "type": "lines"}
+        return True
+
     def walk(n: dict, in_shell: bool = False):
         k = n["kind"]
         if k == "text":
@@ -591,7 +684,7 @@ def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> St
             handle_button(n, None)
             walk(n["content"], in_shell)
         elif k == "box":
-            if not in_shell and (detect_tabs(n) or row_group(n)):
+            if not in_shell and (order_lines(n) or detect_tabs(n) or row_group(n)):
                 return
             if n.get("id") and st.tabs:
                 for c in st.tabs["cases"]:
@@ -709,7 +802,14 @@ class SwiftEmitter:
             return fmap[s["fontToken"]]
         w = {100: ".thin", 300: ".light", 400: ".regular", 500: ".medium", 600: ".semibold", 700: ".bold",
              800: ".heavy", 900: ".black"}.get(weight or 400, ".regular")
-        return f".system(size: {size or 17:g}, weight: {w})"
+        size = size or 17
+        style = text_style_for(size)
+        fam = s.get("family")
+        fam = fam[0] if isinstance(fam, list) and fam else fam
+        custom = self.map.get("fontFamilies", {}).get(fam) if fam else None
+        if custom:
+            return f'.custom("{custom}", size: {size:g}, relativeTo: .{style}).weight({w})'
+        return f".system(.{style}, weight: {w})"
 
     def num(self, v) -> str:
         return f"{v:g}"
@@ -801,11 +901,20 @@ class SwiftEmitter:
             body = self.emit(r["template"], ind + "    ")
             self.item_var = prev
             note = [f"{ind}// TODO rows differ in style in the export; this uses the first row"] if r["styleDiffers"] else []
+            gap = n["style"].get("gap")
+            sp = f"spacing: {self.num(gap)}" if gap is not None else "spacing: 0"
+            if (n["style"].get("layout") or "col") != "row":
+                return note + [f"{ind}LazyVStack({sp}) {{", f"{ind}    ForEach(state.{r['collection']}) {{ {var} in"] + [
+                    "    " + l for l in body] + [f"{ind}    }}", f"{ind}}}"]
             return note + [f"{ind}ForEach(state.{r['collection']}) {{ {var} in"] + body + [f"{ind}}}"]
         lines = self.emit_plain(n, ind)
         if k == "text":
             if b := n.get("bind"):
                 src = f"{self.item_var}.{b['field']}" if b["scope"] == "item" and self.item_var else f"state.{b['field']}"
+                if b["type"] == "lines":
+                    src = f'{src}.map {{ "\\($0.quantity)× \\($0.name)" }}.joined(separator: ", ")'
+                elif b["type"] == "enum":
+                    src += ".title"
                 lines[0] = f"{ind}Text({self.money_expr(src) if b['type'] == 'currency' else src})"
             elif n.get("key"):
                 lines[0] = f'{ind}Text("{n["key"]}")'
@@ -842,15 +951,32 @@ class SwiftEmitter:
     def swift_type(self, f: dict) -> str:
         if f["type"] == "currency":
             return (self.st.types.get("currency") or {}).get("swiftType", "Int")
+        if f["type"] == "lines":
+            return "[Line]"
+        if f["type"] == "enum":
+            return self.enum_type(f["enum"])
         return "String"
 
     def swift_value(self, f: dict, v: dict) -> str:
         if f["type"] == "currency":
             t = (self.st.types.get("currency") or {}).get("swiftSample")
             return t.replace("{cents}", str(v["cents"])) if t else str(v["cents"])
+        if f["type"] == "lines":
+            return "[" + ", ".join(f".init(quantity: {x['quantity']}, name: {_swift_str(x['name'])})" for x in v["value"]) + "]"
+        if f["type"] == "enum":
+            return "." + v["value"]
         if f["type"] == "icon":
             return _swift_str(self.map.get("icons", {}).get(v["value"]) or self.ICONS.get(v["value"], "questionmark.square.dashed"))
         return _swift_str(v["value"])
+
+    def enum_type(self, en: str) -> str:
+        e = self.st.enums.get(en, {})
+        return e.get("type") or (en[:1].upper() + en[1:])
+
+    def enum_cases(self, en: str) -> list:
+        cs = self.st.enums.get(en, {}).get("cases", [])
+        return [(_lower_camel(_words(t)) or f"case{i + 1}", self.st.key(t, f"{en}.{_lower_camel(_words(t)) or f'case{i + 1}'}"))
+                for i, t in enumerate(cs)]
 
     def screen_state(self, ir: dict, name: str) -> str:
         st = self.st
@@ -880,6 +1006,15 @@ class SwiftEmitter:
                "// Generated by stitch-native (state mode) from a Stitch export. Do not hand-edit; regenerate.",
                "// Stateless view: all data comes in through `state`, all actions go out through callbacks.", "",
                f"struct {T}: Equatable {{"]
+        if any(f["type"] == "lines" for f in st.fields):
+            out += ["    struct Line: Equatable {", "        let quantity: Int", "        let name: String", "    }", ""]
+        for f in st.fields:
+            if f["type"] == "enum":
+                out += [f"    enum {self.enum_type(f['enum'])}: String, CaseIterable {{"]
+                out += [f"        case {c}" for c, _ in self.enum_cases(f["enum"])]
+                out += ["", "        var title: LocalizedStringKey {", "            switch self {"]
+                out += [f'            case .{c}: "{k}"' for c, k in self.enum_cases(f["enum"])]
+                out += ["            }", "        }", "    }", ""]
         for g in st.groups:
             out.append(f"    struct {g['item']}: Identifiable, Equatable {{")
             out.append("        let id: UUID")
@@ -1195,12 +1330,17 @@ class ComposeEmitter(SwiftEmitter):
             body = self.emit(r["template"], ind + "        ", extra)
             self.item_var = prev
             note = [f"{ind}// TODO rows differ in style in the export; this uses the first row"] if r["styleDiffers"] else []
+            note.append(f"{ind}// unbounded list: inside a scrolling Column; move to LazyColumn items(state.{r['collection']}, key = {{ it.id }}) when it grows")
             return note + [f"{ind}state.{r['collection']}.forEach {{ {var} ->", f"{ind}    key({var}.id) {{"] + body + [f"{ind}    }}", f"{ind}}}"]
         if k == "text" and (n.get("bind") or n.get("key")):
             s = n["style"]
             if b := n.get("bind"):
                 src = f"{self.item_var}.{b['field']}" if b["scope"] == "item" and self.item_var else f"state.{b['field']}"
                 expr = f"money({src})" if b["type"] == "currency" else src
+                if b["type"] == "lines":
+                    expr = f'{src}.joinToString(", ") {{ "${{it.quantity}}× ${{it.name}}" }}'
+                elif b["type"] == "enum":
+                    expr = f"stringResource({src}.title)"
             else:
                 expr = f"stringResource(R.string.{android_res(n['key'])})"
             if s.get("uppercase"):
@@ -1227,9 +1367,21 @@ class ComposeEmitter(SwiftEmitter):
         return "".join(p[:1].upper() + p[1:] for p in _split_camel(c)) if c else c
 
     def kt_type(self, f: dict) -> str:
+        if f["type"] == "lines":
+            return "List<Line>"
+        if f["type"] == "enum":
+            return self.enum_type(f["enum"])
         return "Long" if f["type"] == "currency" else "String"
 
+    def enum_type(self, en: str) -> str:
+        e = self.st.enums.get(en, {})
+        return e.get("type") or (en[:1].upper() + en[1:])
+
     def kt_value(self, f: dict, v: dict) -> str:
+        if f["type"] == "lines":
+            return "listOf(" + ", ".join(f"Line({x['quantity']}, {_kt_str(x['name'])})" for x in v["value"]) + ")"
+        if f["type"] == "enum":
+            return f"{self.enum_type(f['enum'])}.{self.kt_case(v['value'])}"
         if f["type"] == "currency":
             return f"{v['cents']}L"
         return _kt_str(v["value"])
@@ -1292,6 +1444,8 @@ class ComposeEmitter(SwiftEmitter):
             out += ["    @Immutable", f"    data class {g['item']}(", "        val id: String,"]
             out += [f"        val {f['name']}: {self.kt_type(f)}," + ("  // cents" if f["type"] == "currency" else "") for f in g["fields"]]
             out.append("    )")
+        if any(f["type"] == "lines" for f in st.fields):
+            out += ["    @Immutable", "    data class Line(val quantity: Int, val name: String)"]
         out += ["", "    companion object {", "        /** Sample data copied from the export; use it in previews and tests. */",
                 f"        val sample = {T}("]
         for g in st.groups:
@@ -1302,6 +1456,13 @@ class ComposeEmitter(SwiftEmitter):
             out.append("            ),")
         out += [f"            {f['name']} = {self.kt_value(f, f)}," for f in st.fields]
         out += ["        )", "    }", "}", ""]
+        for f in st.fields:
+            if f["type"] == "enum":
+                out.append(f"enum class {self.enum_type(f['enum'])}(@StringRes val title: Int) {{")
+                for i, t in enumerate(st.enums[f["enum"]]["cases"]):
+                    c = _lower_camel(_words(t)) or f"case{i + 1}"
+                    out.append(f"    {self.kt_case(c)}(R.string.{android_res(st.key(t, f'{f[chr(101)+chr(110)+chr(117)+chr(109)]}.{c}'))}),")
+                out += ["}", ""]
         if st.tabs:
             out.append(f"enum class {st.name}Tab(@StringRes val title: Int) {{")
             out += [f"    {self.kt_case(c['case'])}(R.string.{android_res(c['key'])})," for c in st.tabs["cases"]]
@@ -1558,7 +1719,8 @@ def main(argv):
     elif cmd in ("swiftui", "compose"):
         em = (SwiftEmitter if cmd == "swiftui" else ComposeEmitter)(th, mapping)
         if "--mode" in argv and argv[argv.index("--mode") + 1] == "state":
-            extract_state(ir, mapping, name, "swift" if cmd == "swiftui" else "kotlin")
+            m = re.search(r"<html[^>]*\blang=\"([^\"]+)\"", html)
+            extract_state(ir, mapping, name, m.group(1) if m else None)
         print(em.screen(ir, name))
         rep = sorted(set(em.literals))
         sys.stderr.write(f"warnings: {len(warn)}  off-token literals: {rep}\n")

@@ -8,11 +8,11 @@ struct MatchStatsView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(alignment: .center, spacing: 0) {
                         Text("PAVILHÃO DR. SALVADOR MACHADO")
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.system(.caption2, weight: .bold))
                             .foregroundStyle(StitchTheme.onSurfaceVariant)
                         Spacer(minLength: 0)
                         Text("Fim do Encontro")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(.caption, weight: .medium))
                             .foregroundStyle(StitchTheme.onSurfaceVariant)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 2)
@@ -32,14 +32,14 @@ struct MatchStatsView: View {
                             .background(StitchTheme.surfaceContainerHighest, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(StitchTheme.outlineVariant.opacity(0.5), lineWidth: 1))
                             Text("FC Porto")
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.system(.subheadline, weight: .semibold))
                                 .foregroundStyle(StitchTheme.onSurface)
                                 .multilineTextAlignment(.center)
                         }
                             .frame(maxWidth: .infinity)  // col-span 3/7
                         VStack(alignment: .center, spacing: 0) {
                             Text("4 - 3")
-                                .font(.system(size: 38, weight: .bold))
+                                .font(.system(.largeTitle, weight: .bold))
                                 .foregroundStyle(StitchTheme.onSurface)
                         }
                             .frame(maxWidth: .infinity)  // col-span 1/7
@@ -54,7 +54,7 @@ struct MatchStatsView: View {
                             .background(StitchTheme.surfaceContainerHighest, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(StitchTheme.outlineVariant.opacity(0.5), lineWidth: 1))
                             Text("SL Benfica")
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.system(.subheadline, weight: .semibold))
                                 .foregroundStyle(StitchTheme.onSurface)
                                 .multilineTextAlignment(.center)
                         }
@@ -70,11 +70,11 @@ struct MatchStatsView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(alignment: .center, spacing: 0) {
                         Text("Estatísticas do Jogo")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(.callout, weight: .semibold))
                             .foregroundStyle(StitchTheme.onSurface)
                         Spacer(minLength: 0)
                         Text("Hóquei em Patins")
-                            .font(.system(size: 12, weight: .regular))
+                            .font(.system(.caption, weight: .regular))
                             .foregroundStyle(StitchTheme.onSurfaceVariant)
                     }
                     .frame(maxWidth: .infinity)
@@ -83,15 +83,15 @@ struct MatchStatsView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(alignment: .center, spacing: 0) {
                             Text("9")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(.system(.caption, weight: .semibold))
                                 .foregroundStyle(StitchTheme.onSurface)
                             Spacer(minLength: 0)
                             Text("Remates à Baliza")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(.caption, weight: .medium))
                                 .foregroundStyle(StitchTheme.onSurfaceVariant)
                             Spacer(minLength: 0)
                             Text("8")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(.system(.caption, weight: .semibold))
                                 .foregroundStyle(StitchTheme.onSurface)
                         }
                         .frame(maxWidth: .infinity)
@@ -119,15 +119,15 @@ struct MatchStatsView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(alignment: .center, spacing: 0) {
                             Text("9/10")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(.system(.caption, weight: .semibold))
                                 .foregroundStyle(StitchTheme.error)
                             Spacer(minLength: 0)
                             Text("Faltas de Equipa")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(.caption, weight: .medium))
                                 .foregroundStyle(StitchTheme.onSurfaceVariant)
                             Spacer(minLength: 0)
                             Text("8/10")
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(.system(.caption, weight: .semibold))
                                 .foregroundStyle(StitchTheme.onSurface)
                         }
                         .frame(maxWidth: .infinity)
@@ -161,16 +161,16 @@ struct MatchStatsView: View {
                     HStack(alignment: .center, spacing: 0) {
                         HStack(alignment: .center, spacing: 12) {
                             Text("7")
-                                .font(.system(size: 12, weight: .bold))
+                                .font(.system(.caption, weight: .bold))
                                 .foregroundStyle(StitchTheme.primary)
                                 .multilineTextAlignment(.center)
                                 .frame(width: 24)
                             VStack(alignment: .leading, spacing: 0) {
                                 Text("Gonçalo Alves")
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(.system(.subheadline, weight: .medium))
                                     .foregroundStyle(StitchTheme.onSurface)
                                 Text("Avançado")
-                                    .font(.system(size: 12, weight: .regular))
+                                    .font(.system(.caption, weight: .regular))
                                     .foregroundStyle(StitchTheme.onSurfaceVariant)
                             }
                         }
@@ -178,7 +178,7 @@ struct MatchStatsView: View {
                         ZStack {
                             ZStack {
                                 Text("2")
-                                    .font(.system(size: 12, weight: .bold))
+                                    .font(.system(.caption, weight: .bold))
                                     .foregroundStyle(StitchTheme.onPrimary)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)

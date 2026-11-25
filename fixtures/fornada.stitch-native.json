@@ -1,0 +1,11 @@
+{
+  "state": {
+    "brand": ["Padaria Lérias"],
+    "enums": {
+      "status": {"type": "OrderStatus", "cases": ["Recebida", "A preparar", "No forno", "Pronta"]}
+    },
+    "keys": {
+      "Itens Selecionados": "ordersList.selectedItems"
+    }
+  }
+}

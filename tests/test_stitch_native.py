@@ -53,13 +53,16 @@ class ConverterTests(unittest.TestCase):
 class StateModeTests(unittest.TestCase):
     def gen(self, target, name):
         return subprocess.run([sys.executable, str(ROOT / "stitch_native.py"), target,
-                               str(ROOT / "fixtures" / "fornada-encomendas.html"), "--name", name, "--mode", "state"],
+                               str(ROOT / "fixtures" / "fornada-encomendas.html"), "--name", name, "--mode", "state",
+                               "--config", str(ROOT / "fixtures" / "fornada.stitch-native.json")],
                               capture_output=True, text=True, timeout=60, check=True).stdout
 
     def test_swift_state_golden_and_rules(self):
         out = self.gen("swiftui", "OrdersListView")
         self.assertEqual(out.strip(), (ROOT / "examples" / "OrdersListView.swift").read_text().strip())
-        for must in ("struct OrdersListViewState", "Identifiable", "Picker(", "onRepeat", "#Preview(\"Dark\")"):
+        for must in ("struct OrdersListViewState", "Identifiable", "Picker(", "onRepeat", "#Preview(\"Dark\")",
+                     "var brandName: String", "var lines: [Line]", "var status: OrderStatus", "LazyVStack(",
+                     ".font(.system(.body", "ordersList.selectedItems", 'Locale(identifier: "pt")'):
             self.assertIn(must, out)
         self.assertNotIn("ViewModel", out)
         self.assertNotIn("UseCase", out)
@@ -68,7 +71,8 @@ class StateModeTests(unittest.TestCase):
         out = self.gen("compose", "OrdersListScreen")
         self.assertEqual(out.strip(), (ROOT / "examples" / "OrdersListScreen.kt").read_text().strip())
         for must in ("data class OrdersListScreenState", "SegmentedButton(", "onRepeat: (", "rememberSaveable",
-                     "stringResource(R.string.", "UI_MODE_NIGHT_YES"):
+                     "stringResource(R.string.", "UI_MODE_NIGHT_YES",
+                     "List<Line>", "enum class OrderStatus", "joinToString"):
             self.assertIn(must, out)
         self.assertNotIn("ViewModel", out)
 
