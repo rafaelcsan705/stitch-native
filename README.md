@@ -14,20 +14,20 @@
 ## Quick start
 
 ```bash
-uvx --from git+https://github.com/rafaelcsan705/stitch-native stitch-native swiftui screen.html > Screen.swift
+uvx stitch-native swiftui screen.html > Screen.swift
 ```
 
 ## Add to your agent
 
 | Client | Config |
 |---|---|
-| Claude Code | `claude mcp add stitch-native -- uvx --from git+https://github.com/rafaelcsan705/stitch-native stitch-native-mcp` |
+| Claude Code | `claude mcp add stitch-native -- uvx --from stitch-native stitch-native-mcp` |
 | Claude Desktop / Cursor / VS Code | see JSON below |
 
 ```json
 { "mcpServers": { "stitch-native": {
   "command": "uvx",
-  "args": ["--from", "git+https://github.com/rafaelcsan705/stitch-native", "stitch-native-mcp"] } } }
+  "args": ["--from", "stitch-native", "stitch-native-mcp"] } } }
 ```
 
 Tools: `stitch_to_native`, `stitch_to_swiftui`, `stitch_to_compose`, `stitch_to_html`, `extract_tokens`, `stitch_to_ir`, `init_config` (source: `html`, `path` or `url`). Prompt: `convert_screen`. Resources: token-map and IR docs.
