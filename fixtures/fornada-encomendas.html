@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+
+<html lang="pt"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/><meta content="mobile_tab" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{width:100vw;margin:0;padding:0;}body{overscroll-behavior:none;}.pb-safe{padding-bottom:env(safe-area-inset-bottom,0px);}.pt-safe{padding-top:env(safe-area-inset-top,0px);}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = {darkMode: "class", theme: {extend: {colors: {"secondary-fixed": "#d2e4ff", "on-primary-fixed-variant": "#184974", "tertiary-fixed": "#ffddbb", "on-primary-container": "#95bff1", "surface-tint": "#35618d", "on-surface-variant": "#42474f", "on-secondary-fixed-variant": "#004880", "primary-fixed": "#d1e4ff", "inverse-surface": "#32302b", "surface-variant": "#e7e2da", outline: "#72777f", "on-error-container": "#93000a", "outline-variant": "#c2c7d0", "on-tertiary": "#ffffff", "surface-container-lowest": "#ffffff", "tertiary-fixed-dim": "#ffb868", tertiary: "#4e2d00", "on-secondary": "#ffffff", surface: "#fef9f1", "on-primary-fixed": "#001d35", "inverse-on-surface": "#f5f0e8", "on-background": "#1d1c17", primary: "#00375e", "secondary-container": "#8dbffe", "surface-container-low": "#f8f3eb", secondary: "#2a609a", "error-container": "#ffdad6", "on-secondary-container": "#0a4d85", "surface-container": "#f2ede5", "tertiary-container": "#6e4100", "surface-container-highest": "#e7e2da", "surface-bright": "#fef9f1", "on-tertiary-container": "#f3ae5f", error: "#ba1a1a", "surface-dim": "#ded9d2", "secondary-fixed-dim": "#a1c9ff", background: "#fef9f1", "surface-container-high": "#ece8e0", "on-secondary-fixed": "#001c38", "on-tertiary-fixed": "#2b1700", "on-surface": "#1d1c17", "on-primary": "#ffffff", "primary-fixed-dim": "#a0cafc", "primary-container": "#1f4e79", "on-tertiary-fixed-variant": "#673d00", "on-error": "#ffffff", "inverse-primary": "#a0cafc"}, borderRadius: {DEFAULT: "0.25rem", lg: "0.5rem", xl: "0.75rem", full: "9999px"}, spacing: {"space-xs": "0.25rem", gutter: "1rem", "space-md": "1rem", "space-sm": "0.5rem", "space-lg": "1.5rem", margin: "1.25rem", "space-xl": "2rem"}, fontFamily: {"headline-xl": ["Inter"], "body-lg": ["Nunito Sans"], "label-lg": ["Nunito Sans"], "body-sm": ["Inter"], "headline-md": ["Nunito Sans"], "headline-xl-mobile": ["Inter"], "price-lg": ["Nunito Sans"], "headline-lg": ["Nunito Sans"], "headline-sm": ["Nunito Sans"], "label-md": ["Nunito Sans"], "body-md": ["Nunito Sans"], "label-sm": ["Inter"], "price-md": ["Inter"], "display-lg": ["Nunito Sans"]}, fontSize: {"headline-xl": ["34px", {lineHeight: "41px", letterSpacing: "-0.02em", fontWeight: "700"}], "body-lg": ["16px", {lineHeight: "24px", fontWeight: "400"}], "label-lg": ["14px", {lineHeight: "20px", fontWeight: "700"}], "body-sm": ["13px", {lineHeight: "18px", letterSpacing: "0.005em", fontWeight: "400"}], "headline-md": ["22px", {lineHeight: "28px", fontWeight: "700"}], "headline-xl-mobile": ["28px", {lineHeight: "34px", letterSpacing: "-0.02em", fontWeight: "700"}], "price-lg": ["20px", {lineHeight: "24px", fontWeight: "800"}], "headline-lg": ["28px", {lineHeight: "34px", fontWeight: "700"}], "headline-sm": ["18px", {lineHeight: "24px", fontWeight: "700"}], "label-md": ["12px", {lineHeight: "16px", fontWeight: "600"}], "body-md": ["14px", {lineHeight: "20px", fontWeight: "400"}], "label-sm": ["11px", {lineHeight: "14px", letterSpacing: "0.04em", fontWeight: "500"}], "price-md": ["17px", {lineHeight: "22px", letterSpacing: "-0.01em", fontWeight: "700"}], "display-lg": ["36px", {lineHeight: "44px", fontWeight: "800"}]}}}}</script><style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head><body class="bg-surface font-body-md text-on-surface antialiased min-h-screen flex flex-col"><header class="fixed top-0 inset-x-0 z-50 bg-surface/85 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.03)] pt-safe"><div class="h-16 px-margin flex items-center justify-between"><div class="flex items-center gap-space-sm"><div class="w-9 h-9 rounded-full bg-primary-container flex items-center justify-center text-on-primary shadow-sm"><span class="material-symbols-outlined text-[20px]">bakery_dining</span></div><div class="flex flex-col"><span class="font-headline-sm text-headline-sm text-primary tracking-tight">Padaria Lérias</span><span class="font-label-sm text-label-sm text-secondary -mt-1 font-medium">Tradição &amp; Fornadas</span></div></div><div class="flex items-center gap-space-sm"><h1 class="sr-only">Encomendas</h1><button aria-label="Notificações de Fornadas" class="w-11 h-11 flex items-center justify-center rounded-full text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined text-[22px]">notifications</span></button><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center shadow-sm"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="flex-1 flex flex-col relative w-full pt-16 pb-28 bg-surface px-margin"><div class="flex flex-col w-full">
+<!-- Title & Context -->
+<header class="flex flex-col mb-space-md">
+<div class="flex items-baseline justify-between">
+<h2 class="font-headline-xl-mobile text-headline-xl-mobile text-primary tracking-tight">Encomendas</h2>
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary-fixed text-on-secondary-fixed font-label-sm text-label-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse"></span>
+        1 Em preparação
+      </span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant mt-0.5">Acompanhe as suas fornadas e o histórico artesanal.</p>
+</header>
+<!-- Segmented Control -->
+<div class="w-full bg-surface-container p-1 rounded-full flex items-center mb-space-lg shadow-sm">
+<button class="flex-1 py-1.5 px-3 rounded-full bg-surface-container-lowest text-primary font-label-lg text-label-lg shadow-sm transition-all duration-200 text-center flex items-center justify-center gap-1.5" id="tab-active" onclick="switchOrderTab('active')">
+<span>Em curso</span>
+<span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-primary text-on-primary text-[10px] font-bold">1</span>
+</button>
+<button class="flex-1 py-1.5 px-3 rounded-full text-on-surface-variant font-label-lg text-label-lg hover:text-primary transition-all duration-200 text-center" id="tab-past" onclick="switchOrderTab('past')">
+      Anteriores
+    </button>
+</div>
+<!-- Live Active Order Section -->
+<section class="flex flex-col mb-space-lg" id="section-active-orders">
+<div class="flex items-center justify-between mb-space-sm px-0.5">
+<span class="font-label-md text-label-md tracking-wider uppercase text-on-surface-variant font-semibold">Fornada Ativa</span>
+<span class="font-label-sm text-label-sm text-secondary font-medium">Tempo estimado: 18 min</span>
+</div>
+<!-- Active Card #1042 -->
+<article class="bg-surface-container-lowest rounded-lg p-space-md shadow-sm relative overflow-hidden transition-all duration-200">
+<!-- Top banner ribbon glow -->
+<div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary via-secondary to-primary-container"></div>
+<!-- Header: ID + Status Pill -->
+<div class="flex items-center justify-between pt-1 mb-space-sm">
+<div class="flex items-center gap-2">
+<div class="w-7 h-7 rounded-full bg-primary-fixed flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[16px]">receipt</span>
+</div>
+<span class="font-headline-sm text-headline-sm text-primary tracking-tight">Encomenda #1042</span>
+</div>
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary-fixed text-on-secondary-fixed-variant font-label-sm text-label-sm font-semibold">
+<span class="w-2 h-2 rounded-full bg-secondary animate-ping"></span>
+          A preparar
+        </span>
+</div>
+<!-- Pickup Info Banner -->
+<div class="bg-surface-container-low rounded-lg p-space-sm flex items-start gap-2.5 mb-space-md">
+<span class="material-symbols-outlined text-secondary text-[20px] mt-0.5" style="font-variation-settings: 'FILL' 1;">storefront</span>
+<div class="flex flex-col min-w-0">
+<span class="font-label-md text-label-md text-on-surface font-semibold">Levantamento hoje · 10:30</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant truncate">Padaria Lérias — Loja Alcobaça (Balcão 2)</span>
+</div>
+</div>
+<!-- Stepper Tracking -->
+<div class="px-1 mb-space-lg">
+<div class="relative flex items-center justify-between">
+<!-- Step 1: Recebida (Completed) -->
+<div class="flex flex-col items-center z-10">
+<div class="w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center shadow-sm">
+<span class="material-symbols-outlined text-[18px]">done</span>
+</div>
+<span class="font-label-sm text-label-sm font-semibold text-primary mt-1.5">Recebida</span>
+<span class="font-label-sm text-[10px] text-on-surface-variant">09:45</span>
+</div>
+<!-- Connector 1 (Active) -->
+<div class="flex-1 h-1 bg-primary -mt-5 mx-1 rounded-full"></div>
+<!-- Step 2: A preparar (Current) -->
+<div class="flex flex-col items-center z-10">
+<div class="w-8 h-8 rounded-full bg-secondary text-on-secondary flex items-center justify-center shadow-md ring-4 ring-secondary-fixed">
+<span class="material-symbols-outlined text-[18px] animate-spin">cyclone</span>
+</div>
+<span class="font-label-sm text-label-sm font-semibold text-secondary mt-1.5">A preparar</span>
+<span class="font-label-sm text-[10px] text-secondary font-medium">No forno</span>
+</div>
+<!-- Connector 2 (Pending) -->
+<div class="flex-1 h-1 bg-surface-variant -mt-5 mx-1 rounded-full"></div>
+<!-- Step 3: Pronta (Pending) -->
+<div class="flex flex-col items-center z-10">
+<div class="w-8 h-8 rounded-full bg-surface-container-high text-on-surface-variant flex items-center justify-center">
+<span class="material-symbols-outlined text-[18px]">shopping_bag</span>
+</div>
+<span class="font-label-sm text-label-sm text-on-surface-variant mt-1.5">Pronta</span>
+<span class="font-label-sm text-[10px] text-outline">~10:30</span>
+</div>
+</div>
+</div>
+<!-- Order Items Summary -->
+<div class="bg-surface-container-lowest rounded-lg pt-space-xs pb-space-sm mb-space-sm">
+<span class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider block mb-1">Itens Selecionados</span>
+<p class="font-body-md text-body-md text-on-surface leading-snug">
+<strong class="font-semibold text-primary">2×</strong> Pão de Ló Tradicional,
+          <strong class="font-semibold text-primary">1×</strong> Broa de Milho,
+          <strong class="font-semibold text-primary">4×</strong> Pastéis de Nata
+        </p>
+</div>
+<!-- Bottom Bar: Price & CTA -->
+<div class="pt-space-sm flex items-center justify-between gap-3 bg-surface-container-low -mx-space-md -mb-space-md px-space-md py-space-sm mt-space-xs">
+<div class="flex flex-col">
+<span class="font-label-sm text-label-sm text-on-surface-variant">Total da Encomenda</span>
+<span class="font-price-lg text-price-lg text-secondary">12,40 €</span>
+</div>
+<button class="h-10 px-4 rounded-full bg-primary hover:bg-primary-container text-on-primary flex items-center gap-1.5 font-label-md text-label-md shadow-sm active:scale-95 transition-all" onclick="openPickupModal()">
+<span class="material-symbols-outlined text-[18px]">qr_code_2</span>
+<span>Código de Levantamento</span>
+</button>
+</div>
+</article>
+</section>
+<!-- Delicate Azulejo Geometric Divider Line -->
+<div aria-hidden="true" class="w-full flex items-center justify-center my-space-md py-1">
+<div class="w-full h-2.5 overflow-hidden flex items-center justify-center opacity-85">
+<svg class="w-full h-2.5" fill="none" preserveaspectratio="repeat-x" viewbox="0 0 480 10" xmlns="http://www.w3.org/2000/svg">
+<pattern height="10" id="azulejo-pattern" patternunits="userSpaceOnUse" width="20" x="0" y="0">
+<!-- Cobalt blue outer diamond -->
+<polygon fill="#1f4e79" points="10,0 20,5 10,10 0,5"></polygon>
+<!-- Inner crisp white ceramic tile diamond -->
+<polygon fill="#fef9f1" points="10,2 16,5 10,8 4,5"></polygon>
+<!-- Central Portuguese navy dot -->
+<rect fill="#1f4e79" height="2" width="2" x="9" y="4"></rect>
+<!-- Edge chevrons -->
+<polygon fill="#1f4e79" points="0,0 2,0 0,2"></polygon>
+<polygon fill="#1f4e79" points="20,0 18,0 20,2"></polygon>
+<polygon fill="#1f4e79" points="0,10 2,10 0,8"></polygon>
+<polygon fill="#1f4e79" points="20,10 18,10 20,8"></polygon>
+</pattern>
+<rect fill="url(#azulejo-pattern)" height="10" width="100%"></rect>
+</svg>
+</div>
+</div>
+<!-- Past Orders Section ('Encomendas Anteriores') -->
+<section class="flex flex-col" id="section-past-orders">
+<div class="flex items-center justify-between mb-space-sm px-0.5">
+<h3 class="font-headline-sm text-headline-sm text-primary">Encomendas Anteriores</h3>
+<span class="font-label-sm text-label-sm text-on-surface-variant font-medium">3 registos</span>
+</div>
+<div class="flex flex-col gap-space-sm">
+<!-- Order #1018 -->
+<article class="bg-surface-container-lowest rounded-lg p-space-md shadow-sm transition-transform active:scale-[0.99] flex flex-col justify-between">
+<div class="flex items-start justify-between gap-2 mb-1.5">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-outline-variant"></span>
+<span class="font-label-lg text-label-lg text-primary font-bold">#1018</span>
+<span class="text-outline text-xs">·</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Ontem, 16h40</span>
+</div>
+<span class="font-price-md text-price-md text-secondary whitespace-nowrap">4,20 €</span>
+</div>
+<div class="flex items-center gap-1.5 text-on-surface-variant font-body-sm text-body-sm mb-2.5">
+<span class="material-symbols-outlined text-[15px] text-secondary">pin_drop</span>
+<span>Loja Turquel</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface mb-3 line-clamp-2">
+          2× Pão Alentejano, 1× Pastel de nata
+        </p>
+<div class="flex items-center justify-between pt-2">
+<span class="inline-flex items-center gap-1 text-on-surface-variant font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-outline text-[16px]">check_circle</span>
+            Concluída
+          </span>
+<button class="h-9 px-3.5 rounded-full bg-surface-container-high hover:bg-secondary-fixed text-primary hover:text-on-secondary-fixed-variant flex items-center gap-1.5 font-label-md text-label-md transition-all active:scale-95" onclick="repeatOrder('1018')">
+<span class="material-symbols-outlined text-[16px]">replay</span>
+<span>Repetir</span>
+</button>
+</div>
+</article>
+<!-- Order #0984 -->
+<article class="bg-surface-container-lowest rounded-lg p-space-md shadow-sm transition-transform active:scale-[0.99] flex flex-col justify-between">
+<div class="flex items-start justify-between gap-2 mb-1.5">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-outline-variant"></span>
+<span class="font-label-lg text-label-lg text-primary font-bold">#0984</span>
+<span class="text-outline text-xs">·</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">14 de Março</span>
+</div>
+<span class="font-price-md text-price-md text-secondary whitespace-nowrap">8,90 €</span>
+</div>
+<div class="flex items-center gap-1.5 text-on-surface-variant font-body-sm text-body-sm mb-2.5">
+<span class="material-symbols-outlined text-[15px] text-secondary">pin_drop</span>
+<span>Loja Alcobaça</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface mb-3 line-clamp-2">
+          1× Pão de Massa Mãe Rústico, 6× Queijadas
+        </p>
+<div class="flex items-center justify-between pt-2">
+<span class="inline-flex items-center gap-1 text-on-surface-variant font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-outline text-[16px]">check_circle</span>
+            Concluída
+          </span>
+<button class="h-9 px-3.5 rounded-full bg-surface-container-high hover:bg-secondary-fixed text-primary hover:text-on-secondary-fixed-variant flex items-center gap-1.5 font-label-md text-label-md transition-all active:scale-95" onclick="repeatOrder('0984')">
+<span class="material-symbols-outlined text-[16px]">replay</span>
+<span>Repetir</span>
+</button>
+</div>
+</article>
+<!-- Order #0941 -->
+<article class="bg-surface-container-lowest rounded-lg p-space-md shadow-sm transition-transform active:scale-[0.99] flex flex-col justify-between">
+<div class="flex items-start justify-between gap-2 mb-1.5">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-outline-variant"></span>
+<span class="font-label-lg text-label-lg text-primary font-bold">#0941</span>
+<span class="text-outline text-xs">·</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">10 de Março</span>
+</div>
+<span class="font-price-md text-price-md text-secondary whitespace-nowrap">6,00 €</span>
+</div>
+<div class="flex items-center gap-1.5 text-on-surface-variant font-body-sm text-body-sm mb-2.5">
+<span class="material-symbols-outlined text-[15px] text-secondary">pin_drop</span>
+<span>Loja Benedita</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface mb-3 line-clamp-2">
+          4× Croissant Francês de Manteiga
+        </p>
+<div class="flex items-center justify-between pt-2">
+<span class="inline-flex items-center gap-1 text-on-surface-variant font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-outline text-[16px]">check_circle</span>
+            Concluída
+          </span>
+<button class="h-9 px-3.5 rounded-full bg-surface-container-high hover:bg-secondary-fixed text-primary hover:text-on-secondary-fixed-variant flex items-center gap-1.5 font-label-md text-label-md transition-all active:scale-95" onclick="repeatOrder('0941')">
+<span class="material-symbols-outlined text-[16px]">replay</span>
+<span>Repetir</span>
+</button>
+</div>
+</article>
+</div>
+</section>
+<!-- Interactive Pickup QR Modal Sheet -->
+<dialog class="fixed inset-0 m-auto z-50 bg-transparent p-4 max-w-sm w-full backdrop:bg-inverse-surface/40 backdrop:backdrop-blur-sm" id="pickup-modal">
+<div class="bg-surface-container-lowest rounded-xl p-space-lg shadow-xl flex flex-col items-center text-center">
+<div class="w-12 h-12 rounded-full bg-primary-fixed flex items-center justify-center text-primary mb-3">
+<span class="material-symbols-outlined text-[28px]">qr_code_scanner</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-primary mb-1">Levantamento #1042</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-space-md">Apresente este código no balcão da Loja de Alcobaça.</p>
+<!-- Simulated QR Pattern Container -->
+<div class="p-3 bg-surface-container-low rounded-lg mb-space-md">
+<div class="w-44 h-44 bg-surface-container-lowest rounded flex items-center justify-center relative p-2 shadow-inner">
+<svg class="w-full h-full text-primary" fill="currentColor" viewbox="0 0 100 100">
+<!-- QR Pattern Glyphs -->
+<rect height="28" rx="2" width="28" x="5" y="5"></rect>
+<rect fill="#ffffff" height="20" width="20" x="9" y="9"></rect>
+<rect height="12" width="12" x="13" y="13"></rect>
+<rect height="28" rx="2" width="28" x="67" y="5"></rect>
+<rect fill="#ffffff" height="20" width="20" x="71" y="9"></rect>
+<rect height="12" width="12" x="75" y="13"></rect>
+<rect height="28" rx="2" width="28" x="5" y="67"></rect>
+<rect fill="#ffffff" height="20" width="20" x="9" y="71"></rect>
+<rect height="12" width="12" x="13" y="75"></rect>
+<rect height="8" width="8" x="38" y="10"></rect>
+<rect height="16" width="8" x="50" y="18"></rect>
+<rect height="8" width="24" x="38" y="38"></rect>
+<rect height="8" width="16" x="42" y="50"></rect>
+<rect height="12" width="12" x="68" y="38"></rect>
+<rect height="18" width="10" x="84" y="54"></rect>
+<rect height="16" width="16" x="38" y="68"></rect>
+<rect height="8" width="16" x="58" y="74"></rect>
+<rect height="14" width="14" x="78" y="78"></rect>
+</svg>
+</div>
+</div>
+<span class="font-label-lg text-label-lg font-mono text-primary font-bold tracking-widest mb-space-md">LER-1042-ALC</span>
+<button class="w-full h-11 rounded-full bg-primary text-on-primary font-label-lg text-label-lg active:scale-98 transition-all" onclick="closePickupModal()">
+        Concluir
+      </button>
+</div>
+</dialog>
+<!-- Toast Notification for Repeated Order -->
+<aside class="fixed bottom-24 inset-x-margin max-w-sm mx-auto bg-primary text-on-primary rounded-full px-4 py-3 shadow-lg flex items-center justify-between opacity-0 pointer-events-none transition-all duration-300 z-50" id="toast-repeat">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary-fixed text-[20px]">shopping_basket</span>
+<span class="font-label-md text-label-md">Itens adicionados ao seu cesto!</span>
+</div>
+<span class="font-label-sm text-secondary-fixed font-semibold">Ver cesto</span>
+</aside>
+</div>
+<script>
+  function switchOrderTab(tab) {
+    const btnActive = document.getElementById('tab-active');
+    const btnPast = document.getElementById('tab-past');
+    const secActive = document.getElementById('section-active-orders');
+    const secPast = document.getElementById('section-past-orders');
+
+    if (tab === 'active') {
+      btnActive.className = "flex-1 py-1.5 px-3 rounded-full bg-surface-container-lowest text-primary font-label-lg text-label-lg shadow-sm transition-all duration-200 text-center flex items-center justify-center gap-1.5";
+      btnPast.className = "flex-1 py-1.5 px-3 rounded-full text-on-surface-variant font-label-lg text-label-lg hover:text-primary transition-all duration-200 text-center";
+      secActive.classList.remove('hidden');
+      secPast.classList.remove('hidden');
+    } else {
+      btnPast.className = "flex-1 py-1.5 px-3 rounded-full bg-surface-container-lowest text-primary font-label-lg text-label-lg shadow-sm transition-all duration-200 text-center flex items-center justify-center gap-1.5";
+      btnActive.className = "flex-1 py-1.5 px-3 rounded-full text-on-surface-variant font-label-lg text-label-lg hover:text-primary transition-all duration-200 text-center";
+      secActive.classList.add('hidden');
+      secPast.classList.remove('hidden');
+    }
+  }
+
+  function openPickupModal() {
+    const modal = document.getElementById('pickup-modal');
+    if (modal) modal.showModal();
+  }
+
+  function closePickupModal() {
+    const modal = document.getElementById('pickup-modal');
+    if (modal) modal.close();
+  }
+
+  function repeatOrder(orderId) {
+    const toast = document.getElementById('toast-repeat');
+    if (toast) {
+      toast.classList.remove('opacity-0', 'pointer-events-none', 'translate-y-2');
+      toast.classList.add('opacity-100', 'translate-y-0');
+      setTimeout(() => {
+        toast.classList.remove('opacity-100', 'translate-y-0');
+        toast.classList.add('opacity-0', 'pointer-events-none', 'translate-y-2');
+      }, 2600);
+    }
+  }
+</script></main><div class="fixed bottom-0 inset-x-0 z-50 pointer-events-none pb-safe px-margin mb-3"><nav class="pointer-events-auto mx-auto max-w-md h-16 bg-surface-container-lowest/90 backdrop-blur-xl rounded-full shadow-[0_4px_24px_rgba(31,78,121,0.08)] px-space-sm flex items-center justify-around" data-active-classes="text-primary-container font-semibold [&amp;&gt;span.material-symbols-outlined]:scale-110 [&amp;_.active-indicator]:opacity-100"><a class="flex flex-col items-center justify-center min-w-[48px] min-h-[44px] px-space-xs text-on-surface-variant hover:text-primary transition-all duration-200" data-path="inicio" href="#"><span class="material-symbols-outlined text-[22px] transition-transform">home</span><span class="font-label-sm text-label-sm mt-0.5">Início</span><span class="active-indicator w-1 h-1 rounded-full bg-secondary opacity-0 mt-0.5 transition-opacity"></span></a><a class="flex flex-col items-center justify-center min-w-[48px] min-h-[44px] px-space-xs text-on-surface-variant hover:text-primary transition-all duration-200" data-path="produtos" href="#"><span class="material-symbols-outlined text-[22px] transition-transform">storefront</span><span class="font-label-sm text-label-sm mt-0.5">Produtos</span><span class="active-indicator w-1 h-1 rounded-full bg-secondary opacity-0 mt-0.5 transition-opacity"></span></a><a aria-current="page" class="flex flex-col items-center justify-center min-w-[48px] min-h-[44px] px-space-xs transition-all duration-200 text-primary-container font-semibold [&amp;&gt;span.material-symbols-outlined]:scale-110 [&amp;_.active-indicator]:opacity-100" data-path="encomendas" href="#"><span class="material-symbols-outlined text-[22px] transition-transform">receipt_long</span><span class="font-label-sm text-label-sm mt-0.5">Encomendas</span><span class="active-indicator w-1 h-1 rounded-full bg-secondary opacity-0 mt-0.5 transition-opacity"></span></a><a class="flex flex-col items-center justify-center min-w-[48px] min-h-[44px] px-space-xs text-on-surface-variant hover:text-primary transition-all duration-200" data-path="carteira" href="#"><span class="material-symbols-outlined text-[22px] transition-transform">account_balance_wallet</span><span class="font-label-sm text-label-sm mt-0.5">Carteira</span><span class="active-indicator w-1 h-1 rounded-full bg-secondary opacity-0 mt-0.5 transition-opacity"></span></a><a class="flex flex-col items-center justify-center min-w-[48px] min-h-[44px] px-space-xs text-on-surface-variant hover:text-primary transition-all duration-200" data-path="perfil" href="#"><span class="material-symbols-outlined text-[22px] transition-transform">person_outline</span><span class="font-label-sm text-label-sm mt-0.5">Perfil</span><span class="active-indicator w-1 h-1 rounded-full bg-secondary opacity-0 mt-0.5 transition-opacity"></span></a></nav></div></body></html>

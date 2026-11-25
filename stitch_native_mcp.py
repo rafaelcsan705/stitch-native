@@ -14,14 +14,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import stitch_native as sn  # noqa: E402
 
 PROTOCOL = "2025-06-18"
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 SRC = {
     "html": {"type": "string", "description": "Stitch screen HTML (the export, including the tailwind-config script)."},
     "path": {"type": "string", "description": "Path to a Stitch HTML file. Used when html is not given."},
     "url": {"type": "string", "description": "HTTPS download URL of the screen HTML (a public https URL; Stitch downloadUrls need OAuth, so pass that HTML via html instead)."},
 }
-MAP = {"map": {"type": "object", "description": 'Token map: {"colors": {token|#hex: expr}, "fonts": {token: expr}}.'}}
+MAP = {"config": {"type": "object", "description": 'stitch-native.json contents: {"colors": {token|#hex: expr}, "fonts": {token: expr}, "icons": {material: sfSymbol}, "iconsCompose": {material: "Icons.X.Y"}, "preview": {"colorScheme": "dark|light"}}. Alias: map.'},
+       "config_path": {"type": "string", "description": "Path to a stitch-native.json. Used when config is not given."}}
 NAME = {"name": {"type": "string", "description": "Generated view/composable name.", "default": "StitchScreen"}}
 
 TOOLS = [
@@ -40,7 +41,20 @@ TOOLS.append({"name": "stitch_to_native",
               "description": "Convert one Stitch screen to SwiftUI and Jetpack Compose in one call, plus the theme files.",
               "inputSchema": {"type": "object", "properties": {**SRC, **NAME, **MAP}}})
 
+TOOLS.append({"name": "init_config",
+              "description": "Build a stitch-native.json skeleton from the colours, fonts and icons a screen uses, merged over an existing config (existing entries win). Returns the JSON and the unmapped entries to fill in.",
+              "inputSchema": {"type": "object", "properties": {**SRC, "existing": {"type": "object", "description": "Current config to merge into."},
+                                                                "config_path": MAP["config_path"]}}})
+
 MAX_BYTES = 5_000_000
+
+
+def load_cfg(a: dict) -> dict:
+    if a.get("config") or a.get("map"):
+        return a.get("config") or a.get("map")
+    if a.get("config_path"):
+        return sn.load_config(str(Path(a["config_path"]).expanduser()))
+    return {}
 
 
 def fetch(url: str) -> str:
@@ -68,6 +82,10 @@ def load_html(a: dict) -> str:
 TOKEN_MAP_DOC = json.dumps({
     "colors": {"surface": "DS.Colors.background", "#12241c": "DS.Colors.card"},
     "fonts": {"headline-md": ".title3.weight(.semibold)"},
+    "icons": {"bakery_dining": "birthday.cake"},
+    "iconsCompose": {"bakery_dining": "Icons.Outlined.Cake"},
+    "preview": {"colorScheme": "light"},
+    "output": {"swiftui": "App/Screens", "compose": "app/src/main/java/ui"},
 }, indent=2)
 IR_DOC = """stitch-native IR: a tree of nodes.
 box   {kind, tag, style, children}  style: layout row|column|grid, gap, pad{t,b,l,r}, bg, border, radius, width, height, align, justify, cols
@@ -76,7 +94,7 @@ icon  {kind, material}               Material Symbols name, mapped to SF Symbols
 image {kind, src, style}
 Colours are {hex, token, alpha}. Use stitch_to_ir to see a real tree."""
 RESOURCES = {
-    "stitch-native://docs/token-map": ("Token map example", "application/json", TOKEN_MAP_DOC),
+    "stitch-native://docs/token-map": ("Config (stitch-native.json) example", "application/json", TOKEN_MAP_DOC),
     "stitch-native://docs/ir": ("IR format", "text/plain", IR_DOC),
 }
 PROMPTS = {
@@ -88,8 +106,8 @@ PROMPTS = {
         ],
         "text": ("Convert the Stitch screen {screen} to {platform}.\n"
                  "1. If it is a Stitch project/screen id, call the Stitch MCP get_screen, then download_file on htmlCode, and pass the HTML text as html.\n"
-                 "2. Read this project's design system (colours, fonts) and build a token map (see resource stitch-native://docs/token-map).\n"
-                 "3. Call stitch_to_native (or stitch_to_swiftui / stitch_to_compose) with that map.\n"
+                 "2. Call init_config (with the project's stitch-native.json as existing, if any), then fill every unmapped entry from this project's design system and save it as stitch-native.json.\n"
+                 "3. Call stitch_to_native (or stitch_to_swiftui / stitch_to_compose) with config set to that file's contents.\n"
                  "4. Replace every off-token literal in the report with the closest design-system token, wire real data, and put strings in localisation."),
     },
 }
@@ -97,12 +115,16 @@ PROMPTS = {
 
 def call_tool(name: str, a: dict) -> str:
     th, ir, warn = sn.parse(load_html(a))
+    if name == "init_config":
+        cfg, unmapped = sn.init_config([ir], a.get("existing") or load_cfg(a))
+        return (json.dumps(cfg, indent=2, ensure_ascii=False) + "\n\n"
+                + "\n".join(f"unmapped {k} ({len(v)}): {', '.join(v) or '-'}" for k, v in unmapped.items()))
     if name == "extract_tokens":
         return sn.theme_kotlin(th) if a.get("platform") == "compose" else sn.theme_swift(th)
     if name == "stitch_to_native":
         out = []
         for cls, lang in ((sn.SwiftEmitter, "swift"), (sn.ComposeEmitter, "kotlin")):
-            em = cls(th, a.get("map") or {})
+            em = cls(th, load_cfg(a))
             code = em.screen(ir, a.get("name") or "StitchScreen")
             out.append(f"```{lang}\n{code}\n```\noff-token literals: {sorted(set(em.literals))}")
         out.append(f"```swift\n{sn.theme_swift(th)}\n```")
@@ -113,7 +135,7 @@ def call_tool(name: str, a: dict) -> str:
         return json.dumps(ir, indent=1, ensure_ascii=False)
     if name in ("stitch_to_swiftui", "stitch_to_compose"):
         cls = sn.SwiftEmitter if name == "stitch_to_swiftui" else sn.ComposeEmitter
-        em = cls(th, a.get("map") or {})
+        em = cls(th, load_cfg(a))
         code = em.screen(ir, a.get("name") or "StitchScreen")
         notes = [f"off-token literals: {sorted(set(em.literals))}"] + [f"warning: {w}" for w in sorted(set(warn))]
         return code + "\n\n/* stitch-native report\n" + "\n".join(notes) + "\n*/\n"

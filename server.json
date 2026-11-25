@@ -3,8 +3,8 @@
   "name": "io.github.rafaelcsan705/stitch-native",
   "description": "Convert Google Stitch screens (HTML + Tailwind) to SwiftUI and Jetpack Compose.",
   "repository": { "url": "https://github.com/rafaelcsan705/stitch-native", "source": "github" },
-  "version": "0.2.0",
+  "version": "0.3.0",
   "packages": [
-    { "registryType": "pypi", "identifier": "stitch-native", "version": "0.2.0", "transport": { "type": "stdio" } }
+    { "registryType": "pypi", "identifier": "stitch-native", "version": "0.3.0", "transport": { "type": "stdio" } }
   ]
 }

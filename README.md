@@ -59,8 +59,12 @@ python3 stitch_native.py ir            screen.html > screen.ir.json
 ```
 
 ```bash
-python3 stitch_native.py swiftui screen.html --map ds-map.json
+python3 stitch_native.py init screen.html      # writes stitch-native.json, lists unmapped tokens/icons
+python3 stitch_native.py swiftui screen.html   # auto-loads ./stitch-native.json (or --config path)
 ```
+
+`stitch-native.json` also takes `icons` (Material → SF Symbol), `iconsCompose`
+(Material → `Icons.X.Y`), `preview.colorScheme` and `output` folders. `null` entries fall back to the theme.
 
 ## MCP server
 
@@ -76,8 +80,10 @@ claude mcp add stitch-native -- python3 /path/to/stitch_native_mcp.py
 | `stitch_to_ir` | Layout IR as JSON |
 | `stitch_to_swiftui` | SwiftUI view + off-token report |
 | `stitch_to_compose` | Compose composable + off-token report |
+| `stitch_to_native` | Both platforms in one call |
+| `init_config` | `stitch-native.json` skeleton + unmapped list |
 
-Each tool takes `html` (the export) or `path`; the code tools also take `name` and `map`.
+Each tool takes `html` (the export) or `path`; the code tools also take `name` and `config` (object) or `config_path`.
 Pairs well with the official Stitch MCP: fetch the screen HTML there, convert here.
 
 ## Example

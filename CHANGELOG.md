@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 — 2026-11-25
+- Overlays: sheets, toasts, top and bottom bars (`safeAreaInset`/`.sheet`/`.overlay`; Compose `Scaffold`/`Dialog`).
+- `<button>` becomes `Button`, inline `<svg>` becomes a vector node, `<script>` text is dropped.
+- Built-in colours (`white`, `black`, `transparent`) map to platform colours, not theme tokens.
+- `stitch-native.json` project config (auto-loaded) and `init` command; icon overrides; ~60 more Material→SF mappings.
+- MCP: `init_config` tool, `config`/`config_path` arguments (`map` still accepted).
+
 ## 0.2.0 — 2026-11-25
 - Packaged for PyPI / `uvx` (`stitch-native`, `stitch-native-mcp` commands).
 - MCP: `stitch_to_native` tool (both platforms in one call), `url` source, `convert_screen` prompt, token-map and IR resources.

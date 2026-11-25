@@ -80,5 +80,35 @@ class McpTests(unittest.TestCase):
         self.assertTrue(r[1]["result"]["isError"])
 
 
+ENC = ROOT / "fixtures" / "fornada-encomendas.html"
+
+
+class TestOverlaysAndConfig(unittest.TestCase):
+    def setUp(self):
+        self.th, self.ir, _ = sn.parse(ENC.read_text())
+
+    def test_swift_overlays_buttons_builtins(self):
+        out = sn.SwiftEmitter(self.th, {}).screen(self.ir, "Enc")
+        for s in ("safeAreaInset", "Button", "Color.clear"):
+            self.assertIn(s, out)
+        self.assertNotIn("tailwind.config", out)
+        self.assertNotIn("StitchTheme.transparent", out)
+        self.assertNotIn("StitchTheme.white", out)
+
+    def test_config_icons_and_null_values(self):
+        cfg = {"icons": {"receipt": "doc.text"}, "colors": {"primary": None}}
+        out = sn.SwiftEmitter(self.th, cfg).screen(self.ir, "Enc")
+        self.assertIn('"doc.text"', out)
+        self.assertIn("StitchTheme.primary", out)
+
+    def test_init_reports_unmapped_and_keeps_existing(self):
+        cfg, unmapped = sn.init_config([self.ir], {"colors": {"primary": "DS.accent"}})
+        self.assertEqual(cfg["colors"]["primary"], "DS.accent")
+        self.assertNotIn("primary", unmapped["colors"])
+        self.assertIn("receipt", unmapped["icons"])
+        self.assertEqual(cfg["icons"]["close"] if "close" in cfg["icons"] else "xmark", "xmark")
+        self.assertIn("output", cfg)
+
+
 if __name__ == "__main__":
     unittest.main()

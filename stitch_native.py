@@ -7,6 +7,10 @@ Usage:
   python3 stitch_native.py compose <screen.html> [--map m.json] [--name Screen]
   python3 stitch_native.py tokens  <screen.html>              # Theme.swift from tailwind.config
   python3 stitch_native.py tokens-kotlin <screen.html>        # Theme.kt from tailwind.config
+  python3 stitch_native.py init    <screen.html>...           # write/merge stitch-native.json, list unmapped
+
+Config: --config c.json (alias --map), else ./stitch-native.json if present. Keys: colors, fonts,
+icons (SF Symbols), iconsCompose, preview.colorScheme, output. null = unmapped.
 
 Standard library only. Prototype: covers the Tailwind subset Stitch emits on mobile screens.
 """
@@ -88,7 +92,7 @@ class Theme:
             return {"hex": self.colors[token], "alpha": alpha, "token": token}
         if token in ("white", "black", "transparent"):
             return {"hex": {"white": "ffffff", "black": "000000", "transparent": "000000"}[token],
-                    "alpha": 0 if token == "transparent" else alpha, "token": token}
+                    "alpha": 0 if token == "transparent" else alpha, "token": None, "builtin": token}
         return None
 
 
@@ -164,6 +168,8 @@ def resolve_classes(classes: list[str], style: str, th: Theme, warn: list) -> di
             s["align"] = m.group(1)
         elif m := re.fullmatch(r"(p|px|py|pt|pb|pl|pr)-(.+)", c):
             v = th.space(m.group(2))
+            if v is None:  # e.g. pb-safe: the native safe area handles it
+                continue
             sides = {"p": "tblr", "px": "lr", "py": "tb", "pt": "t", "pb": "b", "pl": "l", "pr": "r"}[m.group(1)]
             for side in sides:
                 s["pad"][side] = v
@@ -241,11 +247,55 @@ def resolve_classes(classes: list[str], style: str, th: Theme, warn: list) -> di
     return s
 
 
-def build_ir(node, th: Theme, warn: list, inherited: dict | None = None):
+def _has_nav(node) -> bool:
+    return any(isinstance(c, Node) and (c.tag == "nav" or _has_nav(c)) for c in node.children)
+
+
+def overlay_role(node, classes: list[str]) -> str | None:
+    """Role of a `fixed` element: topBar, bottomBar, sheet or toast. None = part of the scroll content."""
+    if "fixed" not in classes:
+        return None
+    bottom = any(re.fullmatch(r"bottom-.+", c) for c in classes)
+    if node.tag == "dialog" or node.attrs.get("role") == "dialog":
+        return "sheet"
+    if node.tag == "nav" or _has_nav(node):
+        return "bottomBar" if bottom else "topBar"
+    if node.tag in ("aside",) or node.attrs.get("role") in ("status", "alert"):
+        return "toast"
+    if "top-0" in classes or node.tag == "header":
+        return "topBar"
+    if "bottom-0" in classes:
+        return "bottomBar"
+    return "toast"
+
+
+def build_ir(node, th: Theme, warn: list, inherited: dict | None = None, overlays: list | None = None):
     inherited = inherited or {}
     if isinstance(node, str):
         return {"kind": "text", "text": node, "style": dict(inherited)}
     classes = node.attrs.get("class", "").split()
+    if overlays is not None and (role := overlay_role(node, classes)):
+        bare = Node(node.tag, {**node.attrs, "class": " ".join(c for c in classes if c != "fixed")}, node.parent)
+        bare.children = node.children
+        inner = build_ir(bare, th, warn, inherited, overlays)
+        if inner:
+            overlays.append({"role": role, "id": node.attrs.get("id") or f"{role}{len(overlays) + 1}", "node": inner})
+        return None
+    if node.tag == "svg":
+        return {"kind": "vector", "style": resolve_classes(classes, node.attrs.get("style", ""), th, warn),
+                "label": node.attrs.get("aria-label")}
+    if node.tag in ("button", "a"):
+        a = node.attrs
+        bare = Node("div", a, node.parent)
+        bare.children = node.children
+        content = build_ir(bare, th, warn, inherited, overlays)
+        if not content:
+            return None
+        if content["kind"] == "box":
+            content["tag"] = node.tag
+        return {"kind": "button", "tag": node.tag, "content": content, "style": content.get("style", {}),
+                "action": a.get("onclick") or a.get("href"), "label": a.get("aria-label"),
+                "current": a.get("aria-current") is not None}
     if "material-symbols-outlined" in classes:
         name = "".join(ch for ch in node.children if isinstance(ch, str))
         return {"kind": "icon", "material": name, "style": resolve_classes(classes, "", th, warn)}
@@ -257,7 +307,7 @@ def build_ir(node, th: Theme, warn: list, inherited: dict | None = None):
             inh[k] = style[k]
     if node.tag == "img":
         return {"kind": "image", "src": node.attrs.get("src"), "alt": node.attrs.get("data-alt") or node.attrs.get("alt"), "style": style}
-    kids = [build_ir(ch, th, warn, inh) for ch in node.children]
+    kids = [build_ir(ch, th, warn, inh, overlays) for ch in node.children]
     kids = [k for k in kids if k]
     # an element whose only content is text becomes a text node carrying the box style
     if len(kids) == 1 and kids[0]["kind"] == "text" and "layout" not in style:
@@ -274,7 +324,12 @@ def parse(html: str):
     body = next((c for c in b.root.children if isinstance(c, Node) and c.tag == "html"), b.root)
     body = next((c for c in body.children if isinstance(c, Node) and c.tag == "body"), body)
     warn: list = []
-    ir = build_ir(body, th, warn)
+    overlays: list = []
+    ir = build_ir(body, th, warn, None, overlays)
+    if overlays:
+        ir["overlays"] = overlays
+    m = re.search(r"<html[^>]*class=\"([^\"]*)\"", html, re.I)
+    th.scheme = "dark" if m and "dark" in m.group(1).split() else "light"
     return th, ir, warn
 
 
@@ -289,10 +344,26 @@ class SwiftEmitter:
     """Native fonts (SF, size+weight kept), exact colours/spacing/radius, Material icons -> SF Symbols."""
 
     ICONS = {"arrow_back": "chevron.left", "share": "square.and.arrow.up", "sports_hockey": "hockey.puck",
-             "leaderboard": "chart.bar", "notifications": "bell", "person": "person"}
+             "leaderboard": "chart.bar", "notifications": "bell", "person": "person",
+             "arrow_forward": "chevron.right", "chevron_left": "chevron.left", "chevron_right": "chevron.right",
+             "expand_more": "chevron.down", "expand_less": "chevron.up", "close": "xmark", "menu": "line.3.horizontal",
+             "more_vert": "ellipsis", "more_horiz": "ellipsis", "search": "magnifyingglass", "add": "plus",
+             "remove": "minus", "check": "checkmark", "check_circle": "checkmark.circle.fill", "home": "house",
+             "settings": "gearshape", "favorite": "heart", "star": "star", "edit": "pencil", "delete": "trash",
+             "info": "info.circle", "help": "questionmark.circle", "error": "exclamationmark.circle",
+             "warning": "exclamationmark.triangle", "calendar_today": "calendar", "event": "calendar",
+             "schedule": "clock", "location_on": "mappin.and.ellipse", "place": "mappin", "map": "map",
+             "shopping_cart": "cart", "shopping_bag": "bag", "receipt_long": "doc.text", "storefront": "storefront",
+             "qr_code": "qrcode", "qr_code_scanner": "qrcode.viewfinder", "filter_list": "line.3.horizontal.decrease",
+             "refresh": "arrow.clockwise", "repeat": "repeat", "logout": "rectangle.portrait.and.arrow.right",
+             "mail": "envelope", "phone": "phone", "chat": "bubble.left", "visibility": "eye",
+             "visibility_off": "eye.slash", "lock": "lock", "bookmark": "bookmark", "play_arrow": "play.fill",
+             "pause": "pause.fill", "local_shipping": "shippingbox", "payments": "creditcard", "bakery_dining": "birthday.cake"}
 
     def __init__(self, th: Theme, mapping: dict):
         self.th = th
+        mapping = {k: ({kk: vv for kk, vv in v.items() if vv} if isinstance(v, dict) and k != "preview" else v)
+                   for k, v in (mapping or {}).items()}  # null/"" entries = unmapped (skeleton from `init`)
         self.map = mapping  # {"colors": {"surface": "DS.Colors.surface", "#12241c": "DS.Colors.card"}, ...}
         self.literals: list[str] = []
 
@@ -303,6 +374,10 @@ class SwiftEmitter:
             expr = cmap[key]
         elif ("#" + c["hex"]) in cmap:
             expr = cmap["#" + c["hex"]]
+        elif c.get("builtin"):
+            expr = {"white": "Color.white", "black": "Color.black", "transparent": "Color.clear"}[c["builtin"]]
+            if c["builtin"] == "transparent":
+                return expr
         elif c["token"]:
             expr = f"StitchTheme.{camel(c['token'])}"
         else:
@@ -409,8 +484,22 @@ class SwiftEmitter:
             lines += [f"{ind}    {m}" for m in self.modifiers(n.get("box", {}), ind)]
             return lines
         if k == "icon":
-            sf = self.ICONS.get(n["material"], "questionmark.square.dashed")
+            sf = self.map.get("icons", {}).get(n["material"]) or self.ICONS.get(n["material"], "questionmark.square.dashed")
             return [f'{ind}Image(systemName: "{sf}")  // material: {n["material"]}']
+        if k == "vector":
+            lines = [f'{ind}Image(systemName: "photo")  // TODO svg' + (f': {n["label"]}' if n.get("label") else "")]
+            return lines + [f"{ind}    {m}" for m in self.modifiers(n["style"], ind)]
+        if k == "button":
+            act = (n.get("action") or "").replace("*/", "* /")
+            lines = [f"{ind}Button {{ /* {act} */ }} label: {{"] if act else [f"{ind}Button {{}} label: {{"]
+            lines += self.emit(n["content"], ind + "    ")
+            lines.append(f"{ind}}}")
+            lines.append(f"{ind}.buttonStyle(.plain)")
+            if n.get("label"):
+                lines.append(f'{ind}.accessibilityLabel("{n["label"]}")')
+            if n.get("current"):
+                lines.append(f"{ind}.accessibilityAddTraits(.isSelected)")
+            return lines
         if k == "image":
             src = n.get("src") or ""
             lines = [f'{ind}AsyncImage(url: URL(string: "{src}")) {{ $0.resizable().scaledToFit() }} placeholder: {{ Color.clear }}']
@@ -472,12 +561,42 @@ class SwiftEmitter:
                 lines.append(f"{ind}.frame(height: {self.num(s['height'])})")
         return lines
 
+    @staticmethod
+    def state_name(ov: dict) -> str:
+        c = camel(re.sub(r"[^A-Za-z0-9_-]", "-", ov["id"]))
+        return "show" + c[:1].upper() + c[1:]
+
     def screen(self, ir: dict, name: str) -> str:
         body = self.emit(ir, "        ")
+        ovs = ir.get("overlays", [])
+        state = [f"    @State private var {self.state_name(o)} = false" for o in ovs if o["role"] in ("sheet", "toast")]
+        for o in ovs:
+            i = "        "
+            if o["role"] in ("topBar", "bottomBar"):
+                edge = "top" if o["role"] == "topBar" else "bottom"
+                if o["role"] == "bottomBar":
+                    body.append(f"{i}// bottom nav: consider a TabView for real tab navigation")
+                body.append(f"{i}.safeAreaInset(edge: .{edge}, spacing: 0) {{")
+                body += self.emit(o["node"], i + "    ")
+                body.append(f"{i}}}")
+            elif o["role"] == "toast":
+                body.append(f"{i}.overlay(alignment: .bottom) {{")
+                body.append(f"{i}    if {self.state_name(o)} {{")
+                body += self.emit(o["node"], i + "        ")
+                body.append(f"{i}    }}")
+                body.append(f"{i}}}")
+            else:
+                body.append(f"{i}.sheet(isPresented: ${self.state_name(o)}) {{")
+                body += self.emit(o["node"], i + "    ")
+                body.append(f"{i}}}")
+        scheme = getattr(self.th, "scheme", "dark")
+        cfg_scheme = self.map.get("preview", {}).get("colorScheme")
+        scheme = cfg_scheme or scheme
+        head = f"struct {name}: View {{\n" + ("\n".join(state) + "\n\n" if state else "") + "    var body: some View {\n"
         return ("import SwiftUI\n\n"
                 f"// Generated by stitch-native from a Stitch export. Do not hand-edit; regenerate.\n"
-                f"struct {name}: View {{\n    var body: some View {{\n" + "\n".join(body) +
-                "\n    }\n}\n\n#Preview {\n    " + name + "()\n        .preferredColorScheme(.dark)\n}\n")
+                + head + "\n".join(body) +
+                "\n    }\n}\n\n#Preview {\n    " + name + f"()\n        .preferredColorScheme(.{scheme})\n}}\n")
 
 
 class ComposeEmitter(SwiftEmitter):
@@ -488,6 +607,10 @@ class ComposeEmitter(SwiftEmitter):
         key = c["token"] or ("#" + c["hex"])
         if key in cmap:
             expr = cmap[key]
+        elif c.get("builtin"):
+            expr = {"white": "Color.White", "black": "Color.Black", "transparent": "Color.Transparent"}[c["builtin"]]
+            if c["builtin"] == "transparent":
+                return expr
         elif c["token"]:
             expr = f"StitchTheme.{camel(c['token'])}"
         else:
@@ -582,9 +705,18 @@ class ComposeEmitter(SwiftEmitter):
             return self.call(ind, "Text", [f'text = "{text}"'] + ([f"modifier = {mod}"] if mod else []) + self.text_style(s))
         if k == "icon":
             mod = self.mod_chain(n["style"], extra)
-            nm = "".join(p.capitalize() for p in n["material"].split("_"))
-            return self.call(ind, "Icon", [f"imageVector = Icons.Outlined.{nm}", "contentDescription = null",
+            nm = "Icons.Outlined." + "".join(p.capitalize() for p in n["material"].split("_"))
+            nm = self.map.get("iconsCompose", {}).get(n["material"]) or nm
+            return self.call(ind, "Icon", [f"imageVector = {nm}", "contentDescription = null",
                                           f"modifier = {mod}" if mod else ""])
+        if k == "vector":
+            mod = self.mod_chain(n["style"], extra) or "Modifier.size(24.dp)"
+            return [f"{ind}Box(modifier = {mod})  // TODO svg"]
+        if k == "button":
+            extra2 = list(extra or []) + ["clickable { /* " + (n.get("action") or "").replace("*/", "* /") + " */ }"]
+            if n.get("label"):
+                extra2.append('semantics { contentDescription = "' + n["label"] + '" }')
+            return self.emit(n["content"], ind, extra2)
         if k == "image":
             mod = self.mod_chain(n["style"], extra)
             return self.call(ind, "AsyncImage", [f'model = "{n.get("src") or ""}"', "contentDescription = null",
@@ -635,7 +767,7 @@ class ComposeEmitter(SwiftEmitter):
         return lines + [f"{ind}}}"]
 
     def screen(self, ir: dict, name: str) -> str:
-        body = self.emit(ir, "    ")
+        ovs = ir.get("overlays", [])
         imports = ["androidx.compose.foundation.*", "androidx.compose.foundation.layout.*",
                    "androidx.compose.foundation.shape.*", "androidx.compose.material.icons.Icons",
                    "androidx.compose.material.icons.outlined.*", "androidx.compose.material3.*",
@@ -645,10 +777,44 @@ class ComposeEmitter(SwiftEmitter):
                    "androidx.compose.ui.text.font.FontWeight", "androidx.compose.ui.text.style.*",
                    "androidx.compose.ui.tooling.preview.Preview", "androidx.compose.ui.unit.dp",
                    "androidx.compose.ui.unit.sp", "coil3.compose.AsyncImage"]
+        bg = self.th.colors.get("background") or self.th.colors.get("surface") or "#0a1611"
+        preview = "0xFF" + bg.lstrip("#").upper()
+        if not ovs:
+            body = self.emit(ir, "    ")
+        else:
+            imports[imports.index("androidx.compose.runtime.Composable")] = "androidx.compose.runtime.*"
+            imports += ["androidx.compose.ui.semantics.*", "androidx.compose.ui.window.Dialog"]
+            imports.sort()
+            bars = {o["role"]: o for o in ovs if o["role"] in ("topBar", "bottomBar")}
+            pops = [o for o in ovs if o["role"] in ("sheet", "toast")]
+            body = [f"    var {self.state_name(o)} by remember {{ mutableStateOf(false) }}" for o in pops]
+            body.append("    Scaffold(")
+            for role in ("topBar", "bottomBar"):
+                if role in bars:
+                    body.append(f"        {role} = {{")
+                    body += self.emit(bars[role]["node"], "            ")
+                    body.append("        },")
+            body.append("    ) { innerPadding ->")
+            body.append("        Box(modifier = Modifier.padding(innerPadding)) {")
+            body += self.emit(ir, "            ")
+            for o in pops:
+                v = self.state_name(o)
+                body.append(f"            if ({v}) {{")
+                if o["role"] == "sheet":
+                    body.append(f"                Dialog(onDismissRequest = {{ {v} = false }}) {{")
+                    body += self.emit(o["node"], "                    ")
+                    body.append("                }")
+                else:
+                    body.append("                Box(modifier = Modifier.align(Alignment.BottomCenter)) {")
+                    body += self.emit(o["node"], "                    ")
+                    body.append("                }")
+                body.append("            }")
+            body.append("        }")
+            body.append("    }")
         return ("\n".join(f"import {i}" for i in imports) +
                 "\n\n// Generated by stitch-native from a Stitch export. Do not hand-edit; regenerate.\n"
                 f"@Composable\nfun {name}() {{\n" + "\n".join(body) + "\n}\n\n"
-                f"@Preview(backgroundColor = 0xFF0A1611, showBackground = true)\n@Composable\n"
+                f"@Preview(backgroundColor = {preview}, showBackground = true)\n@Composable\n"
                 f"private fun {name}Preview() = {name}()\n")
 
 
@@ -677,16 +843,83 @@ def theme_swift(th: Theme) -> str:
     return "\n".join(lines)
 
 
+CONFIG_FILE = "stitch-native.json"
+
+
+def load_config(path: str | None = None) -> dict:
+    """Explicit --config path, else ./stitch-native.json when present, else {}."""
+    import os
+    if path:
+        return json.load(open(path, encoding="utf-8"))
+    if os.path.exists(CONFIG_FILE):
+        return json.load(open(CONFIG_FILE, encoding="utf-8"))
+    return {}
+
+
+def used_tokens(ir: dict) -> dict:
+    """Colour tokens / hex literals, font tokens and Material icons a screen uses."""
+    found = {"colors": set(), "fonts": set(), "icons": set()}
+
+    def col(c):
+        if isinstance(c, dict) and "hex" in c and not c.get("builtin"):
+            found["colors"].add(c["token"] or "#" + c["hex"])
+
+    def walk(x):
+        if isinstance(x, dict):
+            if x.get("kind") == "icon":
+                found["icons"].add(x["material"])
+            if x.get("fontToken"):
+                found["fonts"].add(x["fontToken"])
+            col(x)
+            for v in x.values():
+                walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+    walk(ir)
+    return {k: sorted(v) for k, v in found.items()}
+
+
+def init_config(irs: list[dict], existing: dict | None = None) -> tuple[dict, dict]:
+    """Skeleton config for the screens; existing entries win. Returns (config, unmapped)."""
+    cfg = json.loads(json.dumps(existing or {}))
+    used = {"colors": set(), "fonts": set(), "icons": set()}
+    for ir in irs:
+        for k, v in used_tokens(ir).items():
+            used[k] |= set(v)
+    for k in ("colors", "fonts", "icons", "iconsCompose"):
+        sec = cfg.setdefault(k, {})
+        for t in sorted(used["icons" if k == "iconsCompose" else k]):
+            if k == "icons" and t in SwiftEmitter.ICONS:
+                sec.setdefault(t, SwiftEmitter.ICONS[t])
+            sec.setdefault(t, None)
+    cfg.setdefault("preview", {"colorScheme": None})
+    cfg.setdefault("output", {"swiftui": None, "compose": None})
+    unmapped = {k: [t for t, v in cfg[k].items() if not v] for k in ("colors", "fonts", "icons")}
+    return cfg, unmapped
+
+
 def main(argv):
+    if len(argv) >= 2 and argv[1] == "init":
+        paths = [a for a in argv[2:] if not a.startswith("--")]
+        existing = load_config()
+        irs = [parse(open(p, encoding="utf-8").read())[1] for p in paths]
+        cfg, unmapped = init_config(irs, existing)
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        print(f"wrote {CONFIG_FILE}")
+        for k, v in unmapped.items():
+            print(f"unmapped {k} ({len(v)}): {', '.join(v) or '-'}")
+        return 0
     if len(argv) < 3:
         print(__doc__)
         return 2
     cmd, path = argv[1], argv[2]
     html = open(path, encoding="utf-8").read()
     th, ir, warn = parse(html)
-    mapping = {}
-    if "--map" in argv:
-        mapping = json.load(open(argv[argv.index("--map") + 1]))
+    opt = next((o for o in ("--config", "--map") if o in argv), None)
+    mapping = load_config(argv[argv.index(opt) + 1] if opt else None)
     name = argv[argv.index("--name") + 1] if "--name" in argv else "StitchScreen"
     if cmd == "ir":
         print(json.dumps(ir, indent=1, ensure_ascii=False))
