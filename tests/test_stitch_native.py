@@ -51,37 +51,87 @@ class ConverterTests(unittest.TestCase):
 
 
 class StateModeTests(unittest.TestCase):
-    def gen(self, target, name):
+    def gen(self, target, name, config="fornada.stitch-native.json", cfg_dict=None):
+        args = ["--config", str(ROOT / "fixtures" / config)] if config else []
+        if cfg_dict is not None:
+            import tempfile
+            tmp = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+            json.dump(cfg_dict, tmp)
+            tmp.close()
+            args = ["--config", tmp.name]
         return subprocess.run([sys.executable, str(ROOT / "stitch_native.py"), target,
-                               str(ROOT / "fixtures" / "fornada-encomendas.html"), "--name", name, "--mode", "state",
-                               "--config", str(ROOT / "fixtures" / "fornada.stitch-native.json")],
+                               str(ROOT / "fixtures" / "fornada-encomendas.html"), "--name", name, "--mode", "state"] + args,
                               capture_output=True, text=True, timeout=60, check=True).stdout
 
     def test_swift_state_golden_and_rules(self):
         out = self.gen("swiftui", "OrdersListView")
         self.assertEqual(out.strip(), (ROOT / "examples" / "OrdersListView.swift").read_text().strip())
         for must in ("struct OrdersListViewState", "Identifiable", "Picker(", "onRepeat", "#Preview(\"Dark\")",
-                     "var brandName: String", "var lines: [Line]", "var status: OrderStatus", "LazyVStack(",
-                     ".font(.system(.body", "ordersList.selectedItems", 'Locale(identifier: "pt")', "var storeName: String",
-                     "ForEach(OrdersListViewState.OrderStatus.allCases", "ForEach(state.lines)", "struct Line: Identifiable"):
+                     "var brandName: String", "let lines: [Line]", "let status: Order.Status", "LazyVStack(",
+                     ".font(.system(.body", "ordersList.selectedItems", "var activeOrder: ActiveOrder?",
+                     "if let active = state.activeOrder {", "ForEach(statusSteps, id: \\.self)", "ForEach(active.lines)",
+                     "struct Line: Identifiable", "price: Money", "active.price.formatted()", "Money(cents: 1240)",
+                     "let storeName: String", "statusRank(step) < statusRank(active.status)", "default: \"ordersList.status.placed\""):
             self.assertIn(must, out)
         self.assertNotIn("ViewModel", out)
         self.assertNotIn("UseCase", out)
         self.assertNotIn("lojaAlcobaca", out)
+        for never in ("enum OrderStatus", "// cents", "private func money", "Status.allCases", "Sample data copied"):
+            self.assertNotIn(never, out)
 
     def test_compose_state_golden_and_rules(self):
         out = self.gen("compose", "OrdersListScreen")
         self.assertEqual(out.strip(), (ROOT / "examples" / "OrdersListScreen.kt").read_text().strip())
         for must in ("data class OrdersListScreenState", "SegmentedButton(", "onRepeat: (", "rememberSaveable",
                      "stringResource(R.string.", "UI_MODE_NIGHT_YES",
-                     "List<Line>", "enum class OrderStatus", "OrderStatus.entries.forEach", "state.lines.forEach",
-                     "val storeName: String"):
+                     "List<Line>", "state.activeOrder?.let { active ->", "statusSteps.forEach { step ->", "active.lines.forEach",
+                     "val storeName: String", "val price: Money", "Money(1240L)", "active.price.formatted()",
+                     "private val statusSteps = listOf(OrderStatus.Placed", "private fun statusTitle(value: OrderStatus): Int"):
             self.assertIn(must, out)
-        for never in ("joinToString", "lojaAlcobaca"):
+        for never in ("joinToString", "lojaAlcobaca", "enum class OrderStatus", "private fun money", "// cents"):
             self.assertNotIn(never, out)
         for must in ():
             self.assertIn(must, out)
         self.assertNotIn("ViewModel", out)
+
+    LEAKS = ("lérias", "lerias", "alcoba", "turquel", "padaria", "pao", "alentejano")
+
+    def test_no_mockup_words_without_config(self):
+        for target, name in (("swiftui", "OrdersListView"), ("compose", "OrdersListScreen")):
+            out = self.gen(target, name, config=None).lower()
+            for word in self.LEAKS:
+                self.assertNotIn(word, out, f"{target}: '{word}' leaked from the mockup")
+            self.assertIn("ordersList.text1" if target == "swiftui" else "orders_list_text1", out.replace("orderslist.text1", "ordersList.text1"))
+            self.assertIn("field1", out)
+
+    def test_config_names_and_samples(self):
+        cfg = {"state": {"fields": {"Order.field1": "summary", "Tempo estimado: 18 min": "eta"},
+                         "samples": {"eta": "5 min", "Order.title": ["A", "B"]},
+                         "enums": {"status": {"cases": ["Recebida", "A preparar", "No forno", "Pronta"],
+                                              "caseNames": ["received", "preparing", "baking", "ready"]}}}}
+        out = self.gen("swiftui", "OrdersListView", cfg_dict=cfg)
+        for must in ("let summary: String", "var eta: String", 'eta: "5 min"', 'title: "A"', 'title: "B"', 'title: "A"',
+                     "case received", "case baking", "enum OrderStatus"):
+            self.assertIn(must, out.replace("enum Status", "enum OrderStatus"))
+        self.assertIn("// cents", out)          # no money config: the default Int cents path
+        self.assertIn("private func money", out)
+
+    def test_existing_enum_clash_renames_row_struct(self):
+        cfg = {"state": {"enums": {"status": {"existing": True, "type": "Order.Status", "kotlinType": "OrderStatus",
+                                              "cases": ["Recebida", "A preparar"], "caseMap": {"Recebida": "placed", "A preparar": "preparing"}}}}}
+        out = self.gen("swiftui", "OrdersListView", cfg_dict=cfg)
+        self.assertIn("struct OrderRow:", out)
+        self.assertIn("var orders: [OrderRow]", out)
+        self.assertNotIn("enum Status", out)
+
+    def test_detail_can_be_disabled_and_renamed(self):
+        off = self.gen("swiftui", "OrdersListView", cfg_dict={"state": {"detail": False}})
+        self.assertNotIn("ActiveOrder", off)
+        self.assertIn("var lines: [Line]", off)
+        named = self.gen("compose", "OrdersListScreen", cfg_dict={"state": {"detail": {"field": "current", "type": "CurrentOrder"}}})
+        self.assertIn("val current: CurrentOrder?", named)
+        self.assertIn("state.current?.let { active ->", named)
+
 
 class McpTests(unittest.TestCase):
     def rpc(self, *msgs):

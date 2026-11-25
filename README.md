@@ -57,6 +57,22 @@ python3 stitch_native.py compose fixtures/fornada-encomendas.html --name OrdersL
 
 `--mode state` reads `locale`, `timeZone`, `currency` and key prefixes from `stitch-native.json`. Plug the screen into your own ViewModel/Coordinator: it only takes `state` and callbacks.
 
+#### `state.*` config (all optional)
+
+| Key | What it does |
+|---|---|
+| `brand` | Texts bound to `state.brandName` instead of being baked in |
+| `storeField` | Field name for "Brand — Store" texts (default `storeName`) |
+| `prefix`, `keys`, `locale`, `rename` | Key prefix; source text or auto key → final L10n key; locale; rename a row struct or field (`{"Order": "OrderRow", "orderRows": "orders"}`) |
+| `fields` | Semantic names. Key = source text, auto name (`field2`) or `Item.name` (`Order.field1`) → name |
+| `samples` | Sample value by final field name (`Item.name` for row fields; a list gives one value per row; prices take cents). Without it samples are neutral (`Text 1`, `Store 1`) |
+| `money` | `{type, swiftSample, swiftFormat, kotlinType, kotlinSample, kotlinFormat}`; `{cents}` is the sample amount, `{v}` the value expression. The Swift type must be `Equatable` (the state struct is). Without it: `Int`/`Long` cents plus a private `money()` helper |
+| `enums.<name>` | `cases` (source texts), `type`, `current`, `caseNames` (list, or text → name; default `case1`…) |
+| `enums.<name>.existing` | `true` = use the app's own enum: needs `type` (Swift), `kotlinType`, `caseMap` (source text → domain case), optional `kotlinCaseMap` (domain case → Kotlin name). Not declared; the tracker shows only the `caseMap` steps in `cases` order; the generated private helpers `<name>Steps`, `<name>Rank`, `<name>Title` map cases to L10n keys |
+| `detail` | `{field, type}` for the active/detail struct (default `active<Item>` / `Active<Item>`), or `false` to keep everything on the root |
+
+An existing enum must be a plain case enum (`Hashable`, no payloads). The Swift generated code uses `Order.Status`-style names verbatim, so the row struct must not be called `Order` (it is renamed automatically).
+
 ### Map tokens to your design system
 
 ```json

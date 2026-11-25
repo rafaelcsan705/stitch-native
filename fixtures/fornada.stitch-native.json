@@ -1,11 +1,57 @@
 {
   "state": {
-    "brand": ["Padaria Lérias"],
+    "brand": [
+      "Padaria Lérias"
+    ],
+    "money": {
+      "type": "Money",
+      "swiftSample": "Money(cents: {cents})",
+      "swiftFormat": "{v}.formatted()",
+      "kotlinType": "Money",
+      "kotlinSample": "Money({cents}L)",
+      "kotlinFormat": "{v}.formatted()"
+    },
     "enums": {
-      "status": {"type": "OrderStatus", "cases": ["Recebida", "A preparar", "No forno", "Pronta"]}
+      "status": {
+        "existing": true,
+        "type": "Order.Status",
+        "kotlinType": "OrderStatus",
+        "cases": [
+          "Recebida",
+          "A preparar",
+          "No forno",
+          "Pronta"
+        ],
+        "caseMap": {
+          "Recebida": "placed",
+          "A preparar": "preparing",
+          "No forno": "ready",
+          "Pronta": "delivered"
+        }
+      }
+    },
+    "fields": {
+      "1 Em preparação": "activeCount",
+      "Tempo estimado: 18 min": "estimatedTime",
+      "Encomenda #1042": "orderTitle",
+      "Levantamento hoje · 10:30": "pickupWindow",
+      "09:45": "placedAt",
+      "~10:30": "readyAt",
+      "3 registos": "recordCount",
+      "Levantamento #1042": "pickupTitle",
+      "LER-1042-ALC": "pickupCode",
+      "Order.field1": "itemsSummary"
+    },
+    "samples": {
+      "activeCount": "1 active",
+      "storeName": "Main store"
     },
     "keys": {
       "Itens Selecionados": "ordersList.selectedItems"
+    },
+    "rename": {
+      "Order": "OrderRow",
+      "orderRows": "orders"
     }
   }
 }

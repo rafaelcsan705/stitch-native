@@ -425,7 +425,24 @@ class StateModel:
         self.key_over = sc.get("keys", {}) or {}      # source text or auto key -> final key
         self.store_field = sc.get("storeField") or "storeName"   # field for "Brand — Store" texts
         self.brand = set(sc.get("brand", []) or [])   # brand texts: bound to state.brandName, never baked in
-        self.enums = sc.get("enums", {}) or {}        # name -> {cases: [source texts], type?, current?}
+        self.enums = sc.get("enums", {}) or {}        # name -> {cases: [source texts], type?, current?, existing?, caseMap?}
+        self.field_cfg = sc.get("fields", {}) or {}   # source text | auto name | "Item.name" -> semantic field name
+        self.samples_cfg = sc.get("samples", {}) or {}  # final field name | "Item.name" -> sample value (or list per row)
+        self.detail_cfg = sc.get("detail")            # {field, type} | False | None (auto)
+        legacy = self.types.get("currency") or {}
+        m = sc.get("money") or {}
+        self.money = {"swiftType": m.get("type") or m.get("swiftType") or legacy.get("swiftType"),
+                      "swiftSample": m.get("swiftSample") or legacy.get("swiftSample"),
+                      "swiftFormat": m.get("swiftFormat") or legacy.get("swiftFormat"),
+                      "kotlinType": m.get("kotlinType") or legacy.get("kotlinType"),
+                      "kotlinSample": m.get("kotlinSample") or legacy.get("kotlinSample"),
+                      "kotlinFormat": m.get("kotlinFormat") or legacy.get("kotlinFormat")}
+        self.case_names: dict[str, list[str]] = {}   # enum -> case name per source text
+        self.steps: dict[str, list[str]] = {}        # existing enum -> ordered, de-duplicated tracker steps
+        self.detail: dict | None = None              # {field, type, item, fields: [...]}
+        self._textn = 0
+        self._fcount: dict[str, int] = {}
+        self._neutral: dict[str, int] = {}
         self.fields: list[dict] = []        # top-level: {name, type, value, cents?, code?}
         self.groups: list[dict] = []        # {item, collection, fields: [...], rows: [[values]], handler}
         self.keys: dict[str, str] = {}      # key -> source text
@@ -434,6 +451,27 @@ class StateModel:
         self.flags: set[str] = set()
         self.tabs: dict | None = None
         self.warnings: list[str] = []
+
+    def field_name(self, text: str, taken: set, item: str | None = None, shape: str | None = None) -> str:
+        """Shape-based name (number/price/date/title/detail) or a numbered `fieldN`; `state.fields` renames it."""
+        auto = shape or _field_base(text)
+        if auto is None:
+            scope = item or ""
+            n = self._fcount.get(scope, 0) + 1
+            while f"field{n}" in taken:
+                n += 1
+            self._fcount[scope] = n
+            auto = f"field{n}"
+        cfg = self.field_cfg
+        base = cfg.get(text.strip()) or (item and cfg.get(f"{item}.{auto}")) or cfg.get(auto) or auto
+        return self.unique(base, taken)
+
+    def neutral(self, kind: str, idx: int | None = None) -> str:
+        """Mockup-free sample text: `Store 1`, `Date 2`, `Text 3`..."""
+        if idx is not None:
+            return f"{kind} {idx}"
+        n = self._neutral[kind] = self._neutral.get(kind, 0) + 1
+        return f"{kind} {n}"
 
     def unique(self, base: str, taken: set) -> str:
         base = self.rename.get(base, base) or "value"
@@ -451,7 +489,11 @@ class StateModel:
             self.keys[k] = text
             self._key_by_text.setdefault(text, k)
             return k
-        slug = hint or _lower_camel(_words(text)[:3]) or "text"
+        if hint:
+            slug = hint
+        else:
+            self._textn += 1
+            slug = f"text{self._textn}"
         if (auto := f"{self.prefix}.{slug}") in self.key_over:
             k = self.key_over[auto]
             self.keys[k] = text
@@ -473,7 +515,7 @@ def _field_base(text: str) -> str:
         return "price"
     if DATE_RE.search(t):
         return "date"
-    return _lower_camel(_words(t)[:2]) or "value"
+    return None   # no shape: the caller numbers it (field1, field2...) so mockup words never reach identifiers
 
 
 def _value(text: str) -> dict:
@@ -508,8 +550,26 @@ def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> St
     for o in ovs:
         link(o["node"], None)
     case_of = {t: (en, i) for en, e in st.enums.items() for i, t in enumerate(e.get("cases", []))}
-    enum_cases = {en: [_lower_camel(_words(t)) or f"case{i + 1}" for i, t in enumerate(e.get("cases", []))]
-                  for en, e in st.enums.items()}
+    enum_cases: dict[str, list[str]] = {}
+    for en, e in st.enums.items():
+        cm, cn, names = e.get("caseMap", {}) or {}, e.get("caseNames"), []
+        for i, t in enumerate(e.get("cases", [])):
+            if e.get("existing"):
+                c = cm.get(t)
+                if not c:
+                    st.warnings.append(f"state: enum '{en}' is existing but '{t}' has no caseMap entry; using case{i + 1}")
+            elif isinstance(cn, dict):
+                c = cn.get(t)
+            else:
+                c = cn[i] if isinstance(cn, list) and i < len(cn) else None
+            names.append(c or f"case{i + 1}")
+        enum_cases[en] = st.case_names[en] = names
+        if e.get("existing"):
+            st.steps[en] = list(dict.fromkeys(cm[t] for t in e.get("cases", []) if t in cm))
+            if not e.get("type"):
+                st.warnings.append(f"state: existing enum '{en}' needs a `type`")
+    tracker_nodes: list = []
+    lines_nodes: list = []
 
     def enum_role(n: dict) -> str:
         # nearest ancestor holding 2+ case texts: all distinct = tracker labels; a repeat = the status chip
@@ -529,7 +589,7 @@ def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> St
         if t in st.brand:
             if not any(f["name"] == "brandName" for f in st.fields):
                 taken.add("brandName")
-                st.fields.append({"name": "brandName", "type": "string", "value": t})
+                st.fields.append({"name": "brandName", "type": "string", "value": "Brand"})
             n["bind"] = {"scope": "state", "field": "brandName", "type": "string"}
             return
         if t in case_of and scope == "state":
@@ -557,7 +617,9 @@ def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> St
                 if t.startswith(b) and t[len(b):].strip(" —-·|,"):
                     base = st.store_field
                     break
-            fname = st.unique(base or _field_base(t), ftaken)
+            fname = st.field_name(t, ftaken, shape=base)
+            if v["type"] == "string" and not re.fullmatch(r"#\d+", t):   # typed values (#1042, prices) stay; free text is neutral
+                v["value"] = st.neutral("Store") if base else st.neutral("Date" if DATE_RE.search(t) else "Text")
             fields.append({"name": fname, **v})
             n["bind"] = {"scope": scope, "field": fname, "type": v["type"]}
         else:
@@ -618,9 +680,15 @@ def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> St
                         and CALL_RE.match(x.get("action") or "")), None)
         noun = "".join(w.capitalize() for w in _split_camel(handler.group(1))[1:]) if handler else ""
         idx = len(st.groups) + 1
-        item = st.rename.get(noun or f"Item{idx}", noun or f"Item{idx}")
+        src_item = noun or f"Item{idx}"
+        item = st.rename.get(src_item, src_item)
         coll = st.unique((item[:1].lower() + item[1:]) + "s", taken)
-        g = {"item": item, "collection": coll, "fields": [], "rows": [[] for _ in rows], "handlerArg": bool(handler)}
+        for e in st.enums.values():   # a nested row struct would shadow an existing domain type of the same name
+            if e.get("existing") and item in (str(e.get("type", "")).split(".")[0], str(e.get("kotlinType", "")).split(".")[0]):
+                st.warnings.append(f"state: row struct '{item}' would shadow the existing type '{e.get('type')}'; renamed to '{item}Row' (or set state.rename)")
+                item += "Row"
+                break
+        g = {"item": item, "srcItem": src_item, "collection": coll, "fields": [], "rows": [[] for _ in rows], "handlerArg": bool(handler)}
         ftaken: set = {"id"}
         for i in range(len(tmpl)):
             x = tmpl[i]
@@ -630,10 +698,14 @@ def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> St
                 base = _field_base(rows[0][i]["text"])
                 if not re.search(r"\d", rows[0][i]["text"]):
                     base = "title" if "title" not in ftaken else "detail"
-                fname = st.unique(base, ftaken)
+                fname = st.field_name(rows[0][i]["text"], ftaken, item=src_item, shape=base)
                 g["fields"].append({"name": fname, "type": typ, "code": vals[0].get("code")})
-                for r, v in zip(g["rows"], vals):
-                    r.append(v if typ == "currency" else {"type": "string", "value": v["value"]})
+                label = {"date": "Date", "title": "Title", "detail": "Detail"}.get(base or "", "Text")
+                for ri, (r, v) in enumerate(zip(g["rows"], vals)):
+                    if typ == "currency" or re.fullmatch(r"#\d+", v["value"]):
+                        r.append(v)
+                    else:
+                        r.append({"type": "string", "value": st.neutral(label, ri + 1)})
                 x["bind"] = {"scope": "item", "field": fname, "type": typ}
             elif i in varying:
                 fname = st.unique("icon", ftaken)
@@ -667,7 +739,7 @@ def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> St
         if not all(re.fullmatch(r"\d+\s*[×x]", kids[i]["text"].strip()) for i in range(0, len(kids), 2)):
             return False
         vals = [{"quantity": int(re.match(r"\d+", kids[i]["text"].strip()).group()),
-                 "name": kids[i + 1]["text"].strip().rstrip(",;").strip()} for i in range(0, len(kids), 2)]
+                 "name": f"Item {chr(65 + i // 2) if i // 2 < 26 else i // 2 + 1}"} for i in range(0, len(kids), 2)]
         fname = st.unique("lines", taken)
         st.fields.append({"name": fname, "type": "lines", "value": vals})
         tpl = dict(kids[1])
@@ -675,6 +747,7 @@ def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> St
         n.update(tpl)
         n["text"] = ", ".join(f"{v['quantity']}× {v['name']}" for v in vals)
         n["bind"] = {"scope": "state", "field": fname, "type": "lines"}
+        lines_nodes.append(n)
         return True
 
     def tracker(n: dict):
@@ -696,7 +769,8 @@ def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> St
             st.fields.append({"name": en, "type": "enum", "enum": en, "value": enum_cases[en][case_of[labs[cur]["text"].strip()][1]]})
         for j, ct in enumerate(e["cases"]):
             st.key(ct, f"{en}.{enum_cases[en][j]}")
-        n["tracker"] = {"enum": en, "field": en, "done": labs[0], "current": labs[cur], "pending": labs[-1]}
+        n["tracker"] = {"enum": en, "field": en, "done": labs[0], "current": labs[cur], "pending": labs[-1], "scope": "state"}
+        tracker_nodes.append(n)
 
     def walk(n: dict, in_shell: bool = False):
         k = n["kind"]
@@ -731,7 +805,96 @@ def extract_state(ir: dict, cfg: dict, name: str, lang: str | None = None) -> St
                 for c in n["children"]:
                     ids(c)
         ids(ir)
-    for f in st.fields:
+    def kids_of(n: dict) -> list:
+        return n.get("children", []) + ([n["content"]] if n.get("content") else [])
+
+    def refs(n: dict, acc: set, skip: dict | None = None):
+        if n is skip:
+            return
+        if (b := n.get("bind")) and b["scope"] == "state":
+            acc.add(b["field"])
+        if tr := n.get("tracker"):
+            acc.add(tr["field"])
+        for c in kids_of(n):
+            refs(c, acc, skip)
+
+    def retarget(n: dict, move: set):
+        if (b := n.get("bind")) and b["scope"] == "state" and b["field"] in move:
+            b["scope"] = "detail"
+        if (tr := n.get("tracker")) and tr["field"] in move:
+            tr["scope"] = "detail"
+        for c in kids_of(n):
+            retarget(c, move)
+
+    def split_detail():
+        # list state vs active order: move what is bound inside the smallest subtree holding tracker + lines
+        cfgd = st.detail_cfg
+        if cfgd is False or not (tracker_nodes or lines_nodes) or (not st.groups and not isinstance(cfgd, dict)):
+            return
+
+        def chain(n: dict) -> list:
+            c, p = [], parent.get(id(n))
+            while p is not None:
+                c.append(p)
+                p = parent.get(id(p))
+            return c
+
+        if tracker_nodes and lines_nodes:
+            lc = {id(x) for x in chain(lines_nodes[0])}
+            anchor = next((x for x in chain(tracker_nodes[0]) if id(x) in lc), None)
+        else:
+            anchor = next(iter(chain((tracker_nodes or lines_nodes)[0])), None)
+        if anchor is None or anchor is ir:
+            st.warnings.append("state: tracker/lines share no sub-block; the active-order split is skipped")
+            return
+        inside: set = set()
+        refs(anchor, inside)
+        outside: set = set()
+        refs(ir, outside, skip=anchor)
+        for o in ovs:
+            refs(o["node"], outside, skip=anchor)
+        both = inside & outside
+        move = inside - outside
+        for fname in sorted(both):
+            st.warnings.append(f"state: field '{fname}' is bound inside and outside the active-order block; it stays on the root")
+        if not move:
+            return
+        item = st.groups[0]["srcItem"] if st.groups else "Item"
+        d = cfgd if isinstance(cfgd, dict) else {}
+        field = d.get("field") or f"active{item}"
+        typ = d.get("type") or f"Active{item}"
+        st.detail = {"field": field, "type": typ, "fields": [f for f in st.fields if f["name"] in move]}
+        taken.add(field)
+        st.fields = [f for f in st.fields if f["name"] not in move]
+        retarget(anchor, move)
+        anchor["detail"] = {"field": field, "type": typ}
+
+    split_detail()
+
+    def override(f: dict, ov):
+        if f["type"] == "string":
+            f["value"] = str(ov)
+        elif f["type"] == "currency":
+            f["cents"] = int(ov)
+            f["value"] = f"{int(ov) // 100},{int(ov) % 100:02d}"
+
+    top_names = {f["name"] for f in st.fields} | {f["name"] for f in (st.detail or {}).get("fields", [])}
+    for f in st.fields + (st.detail or {}).get("fields", []):
+        if f["name"] in st.samples_cfg:
+            override(f, st.samples_cfg[f["name"]])
+    for g in st.groups:
+        for j, f in enumerate(g["fields"]):
+            ov = st.samples_cfg.get(f"{g['srcItem']}.{f['name']}", st.samples_cfg.get(f"{g['item']}.{f['name']}"))
+            if ov is None and f["name"] not in top_names:
+                ov = st.samples_cfg.get(f["name"])
+            if ov is None:
+                continue
+            for ri, r in enumerate(g["rows"]):
+                pick = ov[ri % len(ov)] if isinstance(ov, list) else ov
+                tmp = {"type": f["type"], "value": r[j].get("value"), "cents": r[j].get("cents")}
+                override(tmp, pick)
+                r[j].update(tmp)
+    for f in st.fields + (st.detail or {}).get("fields", []):
         f.setdefault("code", None)
     ir["state"] = st
     return st
@@ -911,6 +1074,11 @@ class SwiftEmitter:
             out = [f"{ind}if tab == .{n['tabCase']} {{"] + self.emit(n, ind + "    ") + [f"{ind}}}"]
             del n["_inTab"]
             return out
+        if k == "box" and n.get("detail") and not n.get("_inDetail"):
+            n["_inDetail"] = True
+            out = [f"{ind}if let active = state.{n['detail']['field']} {{"] + self.emit(n, ind + "    ") + [f"{ind}}}"]
+            del n["_inDetail"]
+            return out
         if k == "box" and n.get("picker"):
             return [f"{ind}Picker(selection: $tab) {{",
                     f"{ind}    ForEach(Tab.allCases) {{ Text($0.title).tag($0) }}",
@@ -932,30 +1100,36 @@ class SwiftEmitter:
                     "    " + l for l in body] + [f"{ind}    }}", f"{ind}}}"]
             return note + [f"{ind}ForEach(state.{r['collection']}) {{ {var} in"] + body + [f"{ind}}}"]
         if tr := n.get("tracker"):
-            T = f"{self.st.name}State.{self.enum_type(tr['enum'])}"
+            en = tr["enum"]
+            existing = self.st.enums.get(en, {}).get("existing")
+            T = self.enum_type(en) if existing else f"{self.st.name}State.{self.enum_type(en)}"
             col = {}
             for w in ("done", "current", "pending"):
                 out = self.emit(tr[w], ind + "        ")
                 col[w] = next((re.search(r"\.foregroundStyle\((.+)\)", l).group(1) for l in out if ".foregroundStyle(" in l), ".primary")
             tpl = [l for l in self.emit(tr["current"], ind + "        ")[1:] if ".foregroundStyle(" not in l and ".padding(" not in l]
-            f = tr["field"]
-            return [f"{ind}HStack(alignment: .top, spacing: 0) {{",
-                    f"{ind}    ForEach({T}.allCases, id: \\.self) {{ step in",
-                    f"{ind}        Text(step.title)"] + tpl + [
-                    f"{ind}            .foregroundStyle(step == state.{f} ? {col['current']} : step.rank < state.{f}.rank ? {col['done']} : {col['pending']})",
+            cur = self.bind_src({"scope": tr.get("scope", "state"), "field": tr["field"]})
+            if existing:
+                head = [f"{ind}    ForEach({en}Steps, id: \\.self) {{ step in", f"{ind}        Text({en}Title(step))"]
+                test = f"step == {cur} ? {col['current']} : {en}Rank(step) < {en}Rank({cur}) ? {col['done']} : {col['pending']}"
+            else:
+                head = [f"{ind}    ForEach({T}.allCases, id: \\.self) {{ step in", f"{ind}        Text(step.title)"]
+                test = f"step == {cur} ? {col['current']} : step.rank < {cur}.rank ? {col['done']} : {col['pending']}"
+            return [f"{ind}HStack(alignment: .top, spacing: 0) {{"] + head + tpl + [
+                    f"{ind}            .foregroundStyle({test})",
                     f"{ind}            .frame(maxWidth: .infinity)",
                     f"{ind}    }}", f"{ind}}}"]
         lines = self.emit_plain(n, ind)
         if k == "text" and (b := n.get("bind")) and b["type"] == "lines":
-            return [f"{ind}ForEach(state.{b['field']}) {{ line in",
+            return [f"{ind}ForEach({self.bind_src(b)}) {{ line in",
                     f'{ind}    Text(verbatim: "\\(line.quantity)× \\(line.name)")'] + ["    " + l for l in lines[1:]] + [f"{ind}}}"]
         if k == "text":
             if b := n.get("bind"):
-                src = f"{self.item_var}.{b['field']}" if b["scope"] == "item" and self.item_var else f"state.{b['field']}"
+                src = self.bind_src(b)
                 if b["type"] == "lines":
                     src = f'{src}.map {{ "\\($0.quantity)× \\($0.name)" }}.joined(separator: ", ")'
                 elif b["type"] == "enum":
-                    src += ".title"
+                    src = f"{b['field']}Title({src})" if self.st.enums.get(b["field"], {}).get("existing") else src + ".title"
                 lines[0] = f"{ind}Text({self.money_expr(src) if b['type'] == 'currency' else src})"
             elif n.get("key"):
                 lines[0] = f'{ind}Text("{n["key"]}")'
@@ -982,16 +1156,27 @@ class SwiftEmitter:
             if n.get("label"):
                 for i, l in enumerate(lines):
                     if l.startswith(f"{ind}.accessibilityLabel("):
-                        lines[i] = f'{ind}.accessibilityLabel("{st.key(n["label"], _lower_camel(_words(n["label"])[:3]))}")'
+                        lines[i] = f'{ind}.accessibilityLabel("{st.key(n["label"])}")'
         return lines
 
+    def bind_src(self, b: dict) -> str:
+        if b["scope"] == "item" and self.item_var:
+            return f"{self.item_var}.{b['field']}"
+        return f"active.{b['field']}" if b["scope"] == "detail" else f"state.{b['field']}"
+
     def money_expr(self, src: str) -> str:
-        fmt = (self.st.types.get("currency") or {}).get("swiftFormat")
-        return fmt.replace("{v}", src) if fmt else f"money({src})"
+        fmt = self.st.money.get("swiftFormat")
+        if fmt:
+            return fmt.replace("{v}", src)
+        self.default_money = True
+        return f"money({src})"
+
+    def money_is_cents(self) -> bool:
+        return not self.st.money.get("swiftFormat") and not self.st.money.get("swiftType")
 
     def swift_type(self, f: dict) -> str:
         if f["type"] == "currency":
-            return (self.st.types.get("currency") or {}).get("swiftType", "Int")
+            return self.st.money.get("swiftType") or "Int"
         if f["type"] == "lines":
             return "[Line]"
         if f["type"] == "enum":
@@ -1000,7 +1185,7 @@ class SwiftEmitter:
 
     def swift_value(self, f: dict, v: dict) -> str:
         if f["type"] == "currency":
-            t = (self.st.types.get("currency") or {}).get("swiftSample")
+            t = self.st.money.get("swiftSample")
             return t.replace("{cents}", str(v["cents"])) if t else str(v["cents"])
         if f["type"] == "lines":
             return "[" + ", ".join(f".init(quantity: {x['quantity']}, name: {_swift_str(x['name'])})" for x in v["value"]) + "]"
@@ -1016,12 +1201,13 @@ class SwiftEmitter:
 
     def enum_cases(self, en: str) -> list:
         cs = self.st.enums.get(en, {}).get("cases", [])
-        return [(_lower_camel(_words(t)) or f"case{i + 1}", self.st.key(t, f"{en}.{_lower_camel(_words(t)) or f'case{i + 1}'}"))
-                for i, t in enumerate(cs)]
+        names = self.st.case_names[en]
+        return [(names[i], self.st.key(t, f"{en}.{names[i]}")) for i, t in enumerate(cs)]
 
     def screen_state(self, ir: dict, name: str) -> str:
         st = self.st
         self.ir_overlays = ir.get("overlays", [])
+        self.default_money = False
         body = self.emit(ir, "        ")
         ovs = self.ir_overlays
         for o in ovs:
@@ -1042,15 +1228,18 @@ class SwiftEmitter:
                 body += self.emit(o["node"], i + "    ")
                 body.append(f"{i}}}")
         T = st.type
-        uses_money = any("money(" in l for l in body)
+        uses_money = self.default_money
+        dfields = (st.detail or {}).get("fields", [])
+        all_fields = st.fields + dfields
+        cents = lambda f: "  // cents" if f["type"] == "currency" and self.swift_type(f) == "Int" and self.money_is_cents() else ""
         out = ["import SwiftUI", "",
                "// Generated by stitch-native (state mode) from a Stitch export. Do not hand-edit; regenerate.",
                "// Stateless view: all data comes in through `state`, all actions go out through callbacks.", "",
                f"struct {T}: Equatable {{"]
-        if any(f["type"] == "lines" for f in st.fields):
+        if any(f["type"] == "lines" for f in all_fields):
             out += ["    struct Line: Identifiable, Equatable {", "        var id = UUID()", "        let quantity: Int", "        let name: String", "    }", ""]
-        for f in st.fields:
-            if f["type"] == "enum":
+        for f in all_fields:
+            if f["type"] == "enum" and not st.enums.get(f["enum"], {}).get("existing"):
                 out += [f"    enum {self.enum_type(f['enum'])}: String, CaseIterable {{"]
                 out += [f"        case {c}" for c, _ in self.enum_cases(f["enum"])]
                 out += ["", "        var rank: Int { Self.allCases.firstIndex(of: self) ?? 0 }"]
@@ -1060,13 +1249,19 @@ class SwiftEmitter:
         for g in st.groups:
             out.append(f"    struct {g['item']}: Identifiable, Equatable {{")
             out.append("        let id: UUID")
-            out += [f"        let {f['name']}: {self.swift_type(f)}" + ("  // cents" if f["type"] == "currency" and self.swift_type(f) == "Int" else "") for f in g["fields"]]
+            out += [f"        let {f['name']}: {self.swift_type(f)}" + cents(f) for f in g["fields"]]
             out.append("    }")
             out.append("")
+        if st.detail:
+            out.append(f"    struct {st.detail['type']}: Equatable {{")
+            out += [f"        let {f['name']}: {self.swift_type(f)}" + cents(f) for f in dfields]
+            out += ["    }", ""]
         for g in st.groups:
             out.append(f"    var {g['collection']}: [{g['item']}]")
-        out += [f"    var {f['name']}: {self.swift_type(f)}" + ("  // cents" if f["type"] == "currency" and self.swift_type(f) == "Int" else "") for f in st.fields]
-        out += ["}", "", f"extension {T} {{", "    /// Sample data copied from the export; use it in previews and tests.",
+        out += [f"    var {f['name']}: {self.swift_type(f)}" + cents(f) for f in st.fields]
+        if st.detail:
+            out.append(f"    var {st.detail['field']}: {st.detail['type']}?")
+        out += ["}", "", f"extension {T} {{", "    /// Placeholder data for previews and tests (neutral values, nothing copied from the mockup text).",
                 f"    static let sample = {T}("]
         args = []
         for g in st.groups:
@@ -1076,6 +1271,9 @@ class SwiftEmitter:
                 rows.append(f"            .init(id: UUID(), {vals})")
             args.append(f"        {g['collection']}: [\n" + ",\n".join(rows) + "\n        ]")
         args += [f"        {f['name']}: {self.swift_value(f, f)}" for f in st.fields]
+        if st.detail:
+            dv = ", ".join(f"{f['name']}: {self.swift_value(f, f)}" for f in dfields)
+            args.append(f"        {st.detail['field']}: .init({dv})")
         out += [",\n".join(args), "    )", "}", ""]
         out.append(f"struct {name}: View {{")
         out.append(f"    let state: {T}")
@@ -1094,9 +1292,25 @@ class SwiftEmitter:
         out += [f"        {cb}: @escaping {sig} = {d}" + ("," if j < len(cbs) - 1 else "") for j, (cb, sig, d) in enumerate(cbs)]
         out += ["    ) {", "        self.state = state"] + [f"        self.{cb} = {cb}" for cb, _, _ in cbs] + ["    }", ""]
         out += ["    var body: some View {"] + body + ["    }"]
+        for en, e in st.enums.items():
+            if not e.get("existing") or not any(f["type"] == "enum" and f["enum"] == en for f in all_fields):
+                continue
+            ty, steps = self.enum_type(en), st.steps.get(en, [])
+            out += ["", f"    /// Tracker steps in display order (a subset of `{ty}`)."]
+            out += [f"    private var {en}Steps: [{ty}] {{ [" + ", ".join("." + c for c in steps) + "] }", "",
+                    f"    private func {en}Rank(_ value: {ty}) -> Int {{ {en}Steps.firstIndex(of: value) ?? -1 }}", "",
+                    f"    private func {en}Title(_ value: {ty}) -> LocalizedStringKey {{", "        switch value {"]
+            seen, first = set(), None
+            for c, k in self.enum_cases(en):
+                if c in seen or re.fullmatch(r"case\d+", c):
+                    continue
+                seen.add(c)
+                first = first or k
+                out.append(f'        case .{c}: "{k}"')
+            out += [f'        default: "{first}"  // TODO add a label key for the other cases of {ty}' if first else '        default: ""', "        }", "    }"]
         if uses_money:
             loc = st.locale
-            code = next((f["code"] for f in st.fields if f.get("code")), None) or next((f["code"] for g in st.groups for f in g["fields"] if f.get("code")), "EUR")
+            code = next((f["code"] for f in all_fields if f.get("code")), None) or next((f["code"] for g in st.groups for f in g["fields"] if f.get("code")), "EUR")
             out += ["", "    private func money(_ cents: Int) -> String {",
                     f'        (Decimal(cents) / 100).formatted(.currency(code: "{code}").locale(Locale(identifier: "{loc}")))', "    }"]
         out.append("}")
@@ -1396,6 +1610,11 @@ class ComposeEmitter(SwiftEmitter):
             out = [f"{ind}if (tab == {st.name}Tab.{self.kt_case(n['tabCase'])}) {{"] + self.emit(n, ind + "    ", extra) + [f"{ind}}}"]
             del n["_inTab"]
             return out
+        if k == "box" and n.get("detail") and not n.get("_inDetail"):
+            n["_inDetail"] = True
+            out = [f"{ind}state.{n['detail']['field']}?.let {{ active ->"] + self.emit(n, ind + "    ", extra) + [f"{ind}}}"]
+            del n["_inDetail"]
+            return out
         if k == "box" and n.get("picker"):
             m = len(st.tabs["cases"])
             return [f"{ind}SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {{",
@@ -1417,31 +1636,39 @@ class ComposeEmitter(SwiftEmitter):
             note.append(f"{ind}// unbounded list: inside a scrolling Column; move to LazyColumn items(state.{r['collection']}, key = {{ it.id }}) when it grows")
             return note + [f"{ind}state.{r['collection']}.forEach {{ {var} ->", f"{ind}    key({var}.id) {{"] + body + [f"{ind}    }}", f"{ind}}}"]
         if tr := n.get("tracker"):
-            T = self.enum_type(tr["enum"])
+            en = tr["enum"]
+            existing = self.st.enums.get(en, {}).get("existing")
+            T = self.enum_type(en)
             col = {}
             for w in ("done", "current", "pending"):
                 out = self.emit(tr[w], ind + "        ")
                 col[w] = next((l.split("color = ", 1)[1].rstrip(",") for l in out if "color = " in l), "Color.Unspecified")
-            f = tr["field"]
+            cur = self.bind_src({"scope": tr.get("scope", "state"), "field": tr["field"]})
             s = tr["current"]["style"]
+            if existing:
+                each, label = f"{en}Steps.forEach {{ step ->", f"text = stringResource({en}Title(step))"
+                rank = f"{en}Steps.indexOf(step) < {en}Steps.indexOf({cur})"
+            else:
+                each, label = f"{T}.entries.forEach {{ step ->", "text = stringResource(step.title)"
+                rank = f"step.ordinal < {cur}.ordinal"
             return self.call(ind, "Row", ["modifier = Modifier.fillMaxWidth()", "horizontalArrangement = Arrangement.SpaceBetween"])[:1] + [
-                f"{ind}    {T}.entries.forEach {{ step ->"] + self.call(ind + "        ", "Text", [
-                    "text = stringResource(step.title)", "modifier = Modifier.weight(1f)"] + [a for a in self.text_style(s) if not a.startswith("color")] + [
-                    f"color = when {{ step == state.{f} -> {col['current']}; step.ordinal < state.{f}.ordinal -> {col['done']}; else -> {col['pending']} }}"]) + [
+                f"{ind}    {each}"] + self.call(ind + "        ", "Text", [
+                    label, "modifier = Modifier.weight(1f)"] + [a for a in self.text_style(s) if not a.startswith("color")] + [
+                    f"color = when {{ step == {cur} -> {col['current']}; {rank} -> {col['done']}; else -> {col['pending']} }}"]) + [
                 f"{ind}    }}", f"{ind}}}"]
         if k == "text" and (b := n.get("bind")) and b["type"] == "lines":
             mod = self.mod_chain(n.get("box", {}), extra)
-            return [f"{ind}state.{b['field']}.forEach {{ line ->"] + self.call(ind + "    ", "Text", [
+            return [f"{ind}{self.bind_src(b)}.forEach {{ line ->"] + self.call(ind + "    ", "Text", [
                 'text = "${line.quantity}× ${line.name}"'] + ([f"modifier = {mod}"] if mod else []) + self.text_style(n["style"])) + [f"{ind}}}"]
         if k == "text" and (n.get("bind") or n.get("key")):
             s = n["style"]
             if b := n.get("bind"):
-                src = f"{self.item_var}.{b['field']}" if b["scope"] == "item" and self.item_var else f"state.{b['field']}"
-                expr = f"money({src})" if b["type"] == "currency" else src
+                src = self.bind_src(b)
+                expr = self.money_expr(src) if b["type"] == "currency" else src
                 if b["type"] == "lines":
                     expr = f'{src}.joinToString(", ") {{ "${{it.quantity}}× ${{it.name}}" }}'
                 elif b["type"] == "enum":
-                    expr = f"stringResource({src}.title)"
+                    expr = f"stringResource({b['field']}Title({src}))" if self.st.enums.get(b["field"], {}).get("existing") else f"stringResource({src}.title)"
             else:
                 expr = f"stringResource(R.string.{android_res(n['key'])})"
             if s.get("uppercase"):
@@ -1458,7 +1685,7 @@ class ComposeEmitter(SwiftEmitter):
                 act = f"{self.state_name(ov)} = {'true' if f['value'] else 'false'}"
             extra2 = list(extra or []) + ["clickable { " + act + " }"]
             if n.get("label"):
-                key = st.key(n["label"], _lower_camel(_words(n["label"])[:3]))
+                key = st.key(n["label"])
                 extra2.append("semantics { contentDescription = " + f"stringResource(R.string.{android_res(key)})" + " }")
             return self.emit(n["content"], ind, extra2)
         return self.emit_plain(n, ind, extra)
@@ -1467,29 +1694,58 @@ class ComposeEmitter(SwiftEmitter):
     def kt_case(c: str) -> str:
         return "".join(p[:1].upper() + p[1:] for p in _split_camel(c)) if c else c
 
+    def bind_src(self, b: dict) -> str:
+        if b["scope"] == "item" and self.item_var:
+            return f"{self.item_var}.{b['field']}"
+        return f"active.{b['field']}" if b["scope"] == "detail" else f"state.{b['field']}"
+
+    def money_expr(self, src: str) -> str:
+        fmt = self.st.money.get("kotlinFormat")
+        if fmt:
+            return fmt.replace("{v}", src)
+        self.default_money = True
+        return f"money({src})"
+
+    def money_is_cents(self) -> bool:
+        return not self.st.money.get("kotlinFormat") and not self.st.money.get("kotlinType")
+
     def kt_type(self, f: dict) -> str:
         if f["type"] == "lines":
             return "List<Line>"
         if f["type"] == "enum":
             return self.enum_type(f["enum"])
-        return "Long" if f["type"] == "currency" else "String"
+        if f["type"] == "currency":
+            return self.st.money.get("kotlinType") or "Long"
+        return "String"
+
+    def enum_cases(self, en: str) -> list:
+        cs = self.st.enums.get(en, {}).get("cases", [])
+        names = self.st.case_names[en]
+        return [(names[i], self.st.key(t, f"{en}.{names[i]}")) for i, t in enumerate(cs)]
 
     def enum_type(self, en: str) -> str:
         e = self.st.enums.get(en, {})
+        if e.get("existing"):
+            return e.get("kotlinType") or e.get("type") or (en[:1].upper() + en[1:])
         return e.get("type") or (en[:1].upper() + en[1:])
+
+    def enum_case(self, en: str, c: str) -> str:
+        return (self.st.enums.get(en, {}).get("kotlinCaseMap", {}) or {}).get(c) or self.kt_case(c)
 
     def kt_value(self, f: dict, v: dict) -> str:
         if f["type"] == "lines":
             return "listOf(" + ", ".join(f"Line({x['quantity']}, {_kt_str(x['name'])})" for x in v["value"]) + ")"
         if f["type"] == "enum":
-            return f"{self.enum_type(f['enum'])}.{self.kt_case(v['value'])}"
+            return f"{self.enum_type(f['enum'])}.{self.enum_case(f['enum'], v['value'])}"
         if f["type"] == "currency":
-            return f"{v['cents']}L"
+            t = self.st.money.get("kotlinSample")
+            return t.replace("{cents}", str(v["cents"])) if t else f"{v['cents']}L"
         return _kt_str(v["value"])
 
     def screen_state(self, ir: dict, name: str) -> str:
         st = self.st
         self.ir_overlays = ovs = ir.get("overlays", [])
+        self.default_money = False
         T = st.type
         imports = ["androidx.compose.foundation.*", "androidx.compose.foundation.layout.*",
                    "androidx.compose.foundation.shape.*", "androidx.compose.material.icons.Icons",
@@ -1533,21 +1789,30 @@ class ComposeEmitter(SwiftEmitter):
             body += self.emit(o["node"], "                    ")
             body += ["                }", "            }"]
         body += ["        }", "    }"]
-        uses_money = any("money(" in l for l in body)
+        uses_money = self.default_money
+        dfields = (st.detail or {}).get("fields", [])
+        all_fields = st.fields + dfields
+        cents = lambda f: "  // cents" if f["type"] == "currency" and self.money_is_cents() else ""
         out = [f"import {i}" for i in imports] + ["",
                "// Generated by stitch-native (state mode) from a Stitch export. Do not hand-edit; regenerate.",
                "// Stateless screen: data comes in through `state`, actions go out through lambdas (state hoisting).", "",
                "@Immutable", f"data class {T}("]
         props = [f"    val {g['collection']}: List<{g['item']}>," for g in st.groups]
-        props += [f"    val {f['name']}: {self.kt_type(f)}," + ("  // cents" if f["type"] == "currency" else "") for f in st.fields]
+        props += [f"    val {f['name']}: {self.kt_type(f)}," + cents(f) for f in st.fields]
+        if st.detail:
+            props.append(f"    val {st.detail['field']}: {st.detail['type']}?,")
         out += props + [") {"]
         for g in st.groups:
             out += ["    @Immutable", f"    data class {g['item']}(", "        val id: String,"]
-            out += [f"        val {f['name']}: {self.kt_type(f)}," + ("  // cents" if f["type"] == "currency" else "") for f in g["fields"]]
+            out += [f"        val {f['name']}: {self.kt_type(f)}," + cents(f) for f in g["fields"]]
             out.append("    )")
-        if any(f["type"] == "lines" for f in st.fields):
+        if st.detail:
+            out += ["    @Immutable", f"    data class {st.detail['type']}("]
+            out += [f"        val {f['name']}: {self.kt_type(f)}," + cents(f) for f in dfields]
+            out.append("    )")
+        if any(f["type"] == "lines" for f in all_fields):
             out += ["    @Immutable", "    data class Line(val quantity: Int, val name: String)"]
-        out += ["", "    companion object {", "        /** Sample data copied from the export; use it in previews and tests. */",
+        out += ["", "    companion object {", "        /** Placeholder data for previews and tests (neutral values, nothing copied from the mockup text). */",
                 f"        val sample = {T}("]
         for g in st.groups:
             out.append(f"            {g['collection']} = listOf(")
@@ -1556,14 +1821,33 @@ class ComposeEmitter(SwiftEmitter):
                 out.append(f'                {g["item"]}(id = "{j + 1}", {vals}),')
             out.append("            ),")
         out += [f"            {f['name']} = {self.kt_value(f, f)}," for f in st.fields]
+        if st.detail:
+            out.append(f"            {st.detail['field']} = {st.detail['type']}(")
+            out += [f"                {f['name']} = {self.kt_value(f, f)}," for f in dfields]
+            out.append("            ),")
         out += ["        )", "    }", "}", ""]
-        for f in st.fields:
-            if f["type"] == "enum":
-                out.append(f"enum class {self.enum_type(f['enum'])}(@StringRes val title: Int) {{")
-                for i, t in enumerate(st.enums[f["enum"]]["cases"]):
-                    c = _lower_camel(_words(t)) or f"case{i + 1}"
-                    out.append(f"    {self.kt_case(c)}(R.string.{android_res(st.key(t, f'{f[chr(101)+chr(110)+chr(117)+chr(109)]}.{c}'))}),")
+        for f in all_fields:
+            if f["type"] != "enum":
+                continue
+            en = f["enum"]
+            if not st.enums[en].get("existing"):
+                out.append(f"enum class {self.enum_type(en)}(@StringRes val title: Int) {{")
+                for c, k in self.enum_cases(en):
+                    out.append(f"    {self.kt_case(c)}(R.string.{android_res(k)}),")
                 out += ["}", ""]
+            else:
+                ty = self.enum_type(en)
+                out += [f"/** Tracker steps in display order (a subset of `{ty}`). */",
+                        f"private val {en}Steps = listOf(" + ", ".join(f"{ty}.{self.enum_case(en, c)}" for c in st.steps.get(en, [])) + ")", "",
+                        "@StringRes", f"private fun {en}Title(value: {ty}): Int = when (value) {{"]
+                seen, first = set(), None
+                for c, k in self.enum_cases(en):
+                    if c in seen or re.fullmatch(r"case\d+", c):
+                        continue
+                    seen.add(c)
+                    first = first or k
+                    out.append(f"    {ty}.{self.enum_case(en, c)} -> R.string.{android_res(k)}")
+                out += [f"    else -> R.string.{android_res(first)}  // TODO add a label key for the other cases of {ty}" if first else "    else -> 0", "}", ""]
         if st.tabs:
             out.append(f"enum class {st.name}Tab(@StringRes val title: Int) {{")
             out += [f"    {self.kt_case(c['case'])}(R.string.{android_res(c['key'])})," for c in st.tabs["cases"]]
@@ -1571,7 +1855,7 @@ class ComposeEmitter(SwiftEmitter):
         params = [f"    state: {T},"] + [f"    {cb}: {sig} = {d}," for cb, sig, d in cbs] + ["    modifier: Modifier = Modifier,"]
         out += ["@OptIn(ExperimentalMaterial3Api::class)", "@Composable", f"fun {name}("] + params + [") {"] + body + ["}"]
         if uses_money:
-            code = next((f["code"] for f in st.fields if f.get("code")), None) or next(
+            code = next((f["code"] for f in all_fields if f.get("code")), None) or next(
                 (f["code"] for g in st.groups for f in g["fields"] if f.get("code")), "EUR")
             out += ["", "private fun money(cents: Long): String =",
                     f'    NumberFormat.getCurrencyInstance(Locale.forLanguageTag("{st.locale.replace("_", "-")}"))',
@@ -1831,6 +2115,7 @@ def main(argv):
             extract_state(ir, mapping, name, m.group(1) if m else None)
         print(em.screen(ir, name))
         rep = sorted(set(em.literals))
+        warn = list(warn) + (list(em.st.warnings) if getattr(em, "st", None) else [])
         sys.stderr.write(f"warnings: {len(warn)}  off-token literals: {rep}\n")
         for w in sorted(set(warn)):
             sys.stderr.write(f"  - {w}\n")

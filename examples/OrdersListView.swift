@@ -10,85 +10,64 @@ struct OrdersListViewState: Equatable {
         let name: String
     }
 
-    enum OrderStatus: String, CaseIterable {
-        case recebida
-        case preparar
-        case noForno
-        case pronta
-
-        var rank: Int { Self.allCases.firstIndex(of: self) ?? 0 }
-
-        var title: LocalizedStringKey {
-            switch self {
-            case .recebida: "ordersList.status.recebida"
-            case .preparar: "ordersList.status.preparar"
-            case .noForno: "ordersList.status.noForno"
-            case .pronta: "ordersList.status.pronta"
-            }
-        }
-    }
-
-    struct Order: Identifiable, Equatable {
+    struct OrderRow: Identifiable, Equatable {
         let id: UUID
         let number: String
         let date: String
-        let price: Int  // cents
+        let price: Money
         let title: String
-        let paoAlentejano: String
+        let itemsSummary: String
     }
 
-    var orders: [Order]
-    var preparacao: String
-    var tempoEstimado: String
-    var encomenda: String
-    var status: OrderStatus
-    var date: String
-    var storeName: String
-    var date2: String
-    var date3: String
-    var lines: [Line]
-    var price: Int  // cents
-    var registos: String
+    struct ActiveOrder: Equatable {
+        let orderTitle: String
+        let status: Order.Status
+        let pickupWindow: String
+        let storeName: String
+        let placedAt: String
+        let readyAt: String
+        let lines: [Line]
+        let price: Money
+    }
+
+    var orders: [OrderRow]
+    var activeCount: String
+    var estimatedTime: String
+    var recordCount: String
     var brandName: String
-    var levantamento: String
-    var lerAlc: String
+    var pickupTitle: String
+    var pickupCode: String
+    var activeOrder: ActiveOrder?
 }
 
 extension OrdersListViewState {
-    /// Sample data copied from the export; use it in previews and tests.
+    /// Placeholder data for previews and tests (neutral values, nothing copied from the mockup text).
     static let sample = OrdersListViewState(
         orders: [
-            .init(id: UUID(), number: "#1018", date: "Ontem, 16h40", price: 420, title: "Loja Turquel", paoAlentejano: "2× Pão Alentejano, 1× Pastel de nata"),
-            .init(id: UUID(), number: "#0984", date: "14 de Março", price: 890, title: "Loja Alcobaça", paoAlentejano: "1× Pão de Massa Mãe Rústico, 6× Queijadas"),
-            .init(id: UUID(), number: "#0941", date: "10 de Março", price: 600, title: "Loja Benedita", paoAlentejano: "4× Croissant Francês de Manteiga")
+            .init(id: UUID(), number: "#1018", date: "Date 1", price: Money(cents: 420), title: "Title 1", itemsSummary: "Text 1"),
+            .init(id: UUID(), number: "#0984", date: "Date 2", price: Money(cents: 890), title: "Title 2", itemsSummary: "Text 2"),
+            .init(id: UUID(), number: "#0941", date: "Date 3", price: Money(cents: 600), title: "Title 3", itemsSummary: "Text 3")
         ],
-        preparacao: "1 Em preparação",
-        tempoEstimado: "Tempo estimado: 18 min",
-        encomenda: "Encomenda #1042",
-        status: .preparar,
-        date: "Levantamento hoje · 10:30",
-        storeName: "Padaria Lérias — Loja Alcobaça (Balcão 2)",
-        date2: "09:45",
-        date3: "~10:30",
-        lines: [.init(quantity: 2, name: "Pão de Ló Tradicional"), .init(quantity: 1, name: "Broa de Milho"), .init(quantity: 4, name: "Pastéis de Nata")],
-        price: 1240,
-        registos: "3 registos",
-        brandName: "Padaria Lérias",
-        levantamento: "Levantamento #1042",
-        lerAlc: "LER-1042-ALC"
+        activeCount: "1 active",
+        estimatedTime: "Text 2",
+        recordCount: "Text 4",
+        brandName: "Brand",
+        pickupTitle: "Text 5",
+        pickupCode: "Text 6",
+        activeOrder: .init(orderTitle: "Text 3", status: .preparing, pickupWindow: "Date 1", storeName: "Main store", placedAt: "Date 2", readyAt: "Date 3", lines: [.init(quantity: 2, name: "Item A"), .init(quantity: 1, name: "Item B"), .init(quantity: 4, name: "Item C")], price: Money(cents: 1240))
     )
 }
 
 struct OrdersListView: View {
     let state: OrdersListViewState
-    var onRepeat: (OrdersListViewState.Order) -> Void = { _ in }
+    var onRepeat: (OrdersListViewState.OrderRow) -> Void = { _ in }
     @State private var tab: Tab = .active
     @State private var showPickupModal = false
     @State private var showToastRepeat = false
 
     init(
         state: OrdersListViewState,
-        onRepeat: @escaping (OrdersListViewState.Order) -> Void = { _ in }
+        onRepeat: @escaping (OrdersListViewState.OrderRow) -> Void = { _ in }
     ) {
         self.state = state
         self.onRepeat = onRepeat
@@ -100,7 +79,7 @@ struct OrdersListView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     VStack(alignment: .leading, spacing: 0) {
                         HStack(alignment: .firstTextBaseline, spacing: 0) {
-                            Text("ordersList.encomendas")
+                            Text("ordersList.text1")
                                 .font(.system(.title, weight: .bold))
                                 .foregroundStyle(StitchTheme.primary)
                             Spacer(minLength: 0)
@@ -110,7 +89,7 @@ struct OrdersListView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .frame(width: 6, height: 6)
                                 .background(StitchTheme.secondary, in: Capsule())
-                                Text(state.preparacao)
+                                Text(state.activeCount)
                                     .font(.system(.caption2, weight: .medium))
                                     .foregroundStyle(StitchTheme.onSecondaryFixed)
                             }
@@ -120,7 +99,7 @@ struct OrdersListView: View {
                             .background(StitchTheme.secondaryFixed, in: Capsule())
                         }
                         .frame(maxWidth: .infinity)
-                        Text("ordersList.acompanheAsSuas")
+                        Text("ordersList.text2")
                             .font(.system(.subheadline, weight: .regular))
                             .foregroundStyle(StitchTheme.onSurfaceVariant)
                             .padding(.top, 2)  // margin
@@ -135,12 +114,12 @@ struct OrdersListView: View {
                     if tab == .active {
                         VStack(alignment: .leading, spacing: 0) {
                             HStack(alignment: .center, spacing: 0) {
-                                Text("ordersList.fornadaAtiva")
+                                Text("ordersList.text3")
                                     .textCase(.uppercase)
                                     .font(.system(.caption, weight: .semibold))
                                     .foregroundStyle(StitchTheme.onSurfaceVariant)
                                 Spacer(minLength: 0)
-                                Text(state.tempoEstimado)
+                                Text(state.estimatedTime)
                                     .font(.system(.caption2, weight: .medium))
                                     .foregroundStyle(StitchTheme.secondary)
                             }
@@ -148,122 +127,124 @@ struct OrdersListView: View {
                             .padding(.leading, 2)
                             .padding(.trailing, 2)
                             .padding(.bottom, 8)  // margin
-                            VStack(alignment: .leading, spacing: 0) {
+                            if let active = state.activeOrder {
                                 VStack(alignment: .leading, spacing: 0) {
-                                }
-                                .frame(height: 4)
-                                HStack(alignment: .center, spacing: 0) {
-                                    HStack(alignment: .center, spacing: 8) {
-                                        ZStack {
-                                            Image(systemName: "questionmark.square.dashed")  // material: receipt
-                                        }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .frame(width: 28, height: 28)
-                                        .background(StitchTheme.primaryFixed, in: Capsule())
-                                        Text(state.encomenda)
-                                            .font(.system(.body, weight: .bold))
-                                            .foregroundStyle(StitchTheme.primary)
+                                    VStack(alignment: .leading, spacing: 0) {
                                     }
-                                    Spacer(minLength: 0)
-                                    HStack(alignment: .center, spacing: 6) {
-                                        VStack(alignment: .leading, spacing: 0) {
+                                    .frame(height: 4)
+                                    HStack(alignment: .center, spacing: 0) {
+                                        HStack(alignment: .center, spacing: 8) {
+                                            ZStack {
+                                                Image(systemName: "questionmark.square.dashed")  // material: receipt
+                                            }
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .frame(width: 28, height: 28)
+                                            .background(StitchTheme.primaryFixed, in: Capsule())
+                                            Text(active.orderTitle)
+                                                .font(.system(.body, weight: .bold))
+                                                .foregroundStyle(StitchTheme.primary)
+                                        }
+                                        Spacer(minLength: 0)
+                                        HStack(alignment: .center, spacing: 6) {
+                                            VStack(alignment: .leading, spacing: 0) {
+                                            }
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .frame(width: 8, height: 8)
+                                            .background(StitchTheme.secondary, in: Capsule())
+                                            Text(statusTitle(active.status))
+                                                .font(.system(.caption2, weight: .semibold))
+                                                .foregroundStyle(StitchTheme.onSecondaryFixedVariant)
                                         }
                                         .frame(maxWidth: .infinity, alignment: .leading)
-                                        .frame(width: 8, height: 8)
-                                        .background(StitchTheme.secondary, in: Capsule())
-                                        Text(state.status.title)
-                                            .font(.system(.caption2, weight: .semibold))
-                                            .foregroundStyle(StitchTheme.onSecondaryFixedVariant)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 4)
+                                        .background(StitchTheme.secondaryFixed, in: Capsule())
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.top, 4)
+                                    .padding(.bottom, 8)  // margin
+                                    HStack(alignment: .top, spacing: 10) {
+                                        Image(systemName: "storefront")  // material: storefront
+                                        VStack(alignment: .leading, spacing: 0) {
+                                            Text(active.pickupWindow)
+                                                .font(.system(.caption, weight: .semibold))
+                                                .foregroundStyle(StitchTheme.onSurface)
+                                            Text(active.storeName)
+                                                .font(.system(.footnote, weight: .regular))
+                                                .foregroundStyle(StitchTheme.onSurfaceVariant)
+                                                .lineLimit(1)
+                                        }
                                     }
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 4)
-                                    .background(StitchTheme.secondaryFixed, in: Capsule())
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.top, 4)
-                                .padding(.bottom, 8)  // margin
-                                HStack(alignment: .top, spacing: 10) {
-                                    Image(systemName: "storefront")  // material: storefront
+                                    .padding(8)
+                                    .background(StitchTheme.surfaceContainerLow, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    .padding(.bottom, 16)  // margin
                                     VStack(alignment: .leading, spacing: 0) {
-                                        Text(state.date)
-                                            .font(.system(.caption, weight: .semibold))
-                                            .foregroundStyle(StitchTheme.onSurface)
-                                        Text(state.storeName)
-                                            .font(.system(.footnote, weight: .regular))
-                                            .foregroundStyle(StitchTheme.onSurfaceVariant)
-                                            .lineLimit(1)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(8)
-                                .background(StitchTheme.surfaceContainerLow, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                .padding(.bottom, 16)  // margin
-                                VStack(alignment: .leading, spacing: 0) {
-                                    HStack(alignment: .top, spacing: 0) {
-                                        ForEach(OrdersListViewState.OrderStatus.allCases, id: \.self) { step in
-                                            Text(step.title)
-                                                .font(.system(.caption2, weight: .semibold))
-                                                .foregroundStyle(step == state.status ? StitchTheme.secondary : step.rank < state.status.rank ? StitchTheme.primary : StitchTheme.onSurfaceVariant)
-                                                .frame(maxWidth: .infinity)
+                                        HStack(alignment: .top, spacing: 0) {
+                                            ForEach(statusSteps, id: \.self) { step in
+                                                Text(statusTitle(step))
+                                                    .font(.system(.caption2, weight: .semibold))
+                                                    .foregroundStyle(step == active.status ? StitchTheme.secondary : statusRank(step) < statusRank(active.status) ? StitchTheme.primary : StitchTheme.onSurfaceVariant)
+                                                    .frame(maxWidth: .infinity)
+                                            }
                                         }
                                     }
-                                }
-                                .padding(.leading, 4)
-                                .padding(.trailing, 4)
-                                .padding(.bottom, 24)  // margin
-                                VStack(alignment: .leading, spacing: 0) {
-                                    Text("ordersList.selectedItems")
-                                        .textCase(.uppercase)
-                                        .font(.system(.caption2, weight: .medium))
-                                        .foregroundStyle(StitchTheme.onSurfaceVariant)
-                                        .padding(.bottom, 4)  // margin
-                                    ForEach(state.lines) { line in
-                                        Text(verbatim: "\(line.quantity)× \(line.name)")
-                                            .font(.system(.subheadline, weight: .regular))
-                                            .foregroundStyle(StitchTheme.onSurface)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.top, 4)
-                                .padding(.bottom, 8)
-                                .background(StitchTheme.surfaceContainerLowest, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                .padding(.bottom, 8)  // margin
-                                HStack(alignment: .center, spacing: 12) {
+                                    .padding(.leading, 4)
+                                    .padding(.trailing, 4)
+                                    .padding(.bottom, 24)  // margin
                                     VStack(alignment: .leading, spacing: 0) {
-                                        Text("ordersList.totalEncomenda")
+                                        Text("ordersList.selectedItems")
+                                            .textCase(.uppercase)
                                             .font(.system(.caption2, weight: .medium))
                                             .foregroundStyle(StitchTheme.onSurfaceVariant)
-                                        Text(money(state.price))
-                                            .font(.system(.title3, weight: .heavy))
-                                            .foregroundStyle(StitchTheme.secondary)
-                                    }
-                                    Spacer(minLength: 0)
-                                    Button { showPickupModal = true } label: {
-                                        HStack(alignment: .center, spacing: 6) {
-                                            Image(systemName: "questionmark.square.dashed")  // material: qr_code_2
-                                            Text("ordersList.codigoLevantamento")
-                                                .font(.system(.caption, weight: .semibold))
-                                                .foregroundStyle(StitchTheme.onPrimary)
+                                            .padding(.bottom, 4)  // margin
+                                        ForEach(active.lines) { line in
+                                            Text(verbatim: "\(line.quantity)× \(line.name)")
+                                                .font(.system(.subheadline, weight: .regular))
+                                                .foregroundStyle(StitchTheme.onSurface)
                                         }
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.leading, 16)
-                                        .padding(.trailing, 16)
-                                        .frame(height: 40)
-                                        .background(StitchTheme.primary, in: Capsule())
                                     }
-                                    .buttonStyle(.plain)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.top, 4)
+                                    .padding(.bottom, 8)
+                                    .background(StitchTheme.surfaceContainerLowest, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    .padding(.bottom, 8)  // margin
+                                    HStack(alignment: .center, spacing: 12) {
+                                        VStack(alignment: .leading, spacing: 0) {
+                                            Text("ordersList.text4")
+                                                .font(.system(.caption2, weight: .medium))
+                                                .foregroundStyle(StitchTheme.onSurfaceVariant)
+                                            Text(active.price.formatted())
+                                                .font(.system(.title3, weight: .heavy))
+                                                .foregroundStyle(StitchTheme.secondary)
+                                        }
+                                        Spacer(minLength: 0)
+                                        Button { showPickupModal = true } label: {
+                                            HStack(alignment: .center, spacing: 6) {
+                                                Image(systemName: "questionmark.square.dashed")  // material: qr_code_2
+                                                Text("ordersList.text5")
+                                                    .font(.system(.caption, weight: .semibold))
+                                                    .foregroundStyle(StitchTheme.onPrimary)
+                                            }
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .padding(.leading, 16)
+                                            .padding(.trailing, 16)
+                                            .frame(height: 40)
+                                            .background(StitchTheme.primary, in: Capsule())
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 8)
+                                    .background(StitchTheme.surfaceContainerLow)
+                                    .padding(.top, 4)  // margin
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .frame(maxWidth: .infinity)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
-                                .background(StitchTheme.surfaceContainerLow)
-                                .padding(.top, 4)  // margin
+                                .padding(16)
+                                .background(StitchTheme.surfaceContainerLowest, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(16)
-                            .background(StitchTheme.surfaceContainerLowest, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.bottom, 24)  // margin
@@ -285,11 +266,11 @@ struct OrdersListView: View {
                     if tab == .past {
                         VStack(alignment: .leading, spacing: 0) {
                             HStack(alignment: .center, spacing: 0) {
-                                Text("ordersList.encomendasAnteriores")
+                                Text("ordersList.text6")
                                     .font(.system(.body, weight: .bold))
                                     .foregroundStyle(StitchTheme.primary)
                                 Spacer(minLength: 0)
-                                Text(state.registos)
+                                Text(state.recordCount)
                                     .font(.system(.caption2, weight: .medium))
                                     .foregroundStyle(StitchTheme.onSurfaceVariant)
                             }
@@ -298,7 +279,7 @@ struct OrdersListView: View {
                             .padding(.trailing, 2)
                             .padding(.bottom, 8)  // margin
                             LazyVStack(spacing: 8) {
-                                ForEach(state.orders) { order in
+                                ForEach(state.orders) { orderRow in
                                     VStack(alignment: .leading, spacing: 0) {
                                         HStack(alignment: .top, spacing: 8) {
                                             HStack(alignment: .center, spacing: 8) {
@@ -307,18 +288,18 @@ struct OrdersListView: View {
                                                 .frame(maxWidth: .infinity, alignment: .leading)
                                                 .frame(width: 8, height: 8)
                                                 .background(StitchTheme.outlineVariant, in: Capsule())
-                                                Text(order.number)
+                                                Text(orderRow.number)
                                                     .font(.system(.subheadline, weight: .bold))
                                                     .foregroundStyle(StitchTheme.primary)
                                                 Text(verbatim: "·")
                                                     .font(.system(.caption, weight: .regular))
                                                     .foregroundStyle(StitchTheme.outline)
-                                                Text(order.date)
+                                                Text(orderRow.date)
                                                     .font(.system(.footnote, weight: .regular))
                                                     .foregroundStyle(StitchTheme.onSurfaceVariant)
                                             }
                                             Spacer(minLength: 0)
-                                            Text(money(order.price))
+                                            Text(orderRow.price.formatted())
                                                 .font(.system(.body, weight: .bold))
                                                 .foregroundStyle(StitchTheme.secondary)
                                         }
@@ -326,24 +307,24 @@ struct OrdersListView: View {
                                         .padding(.bottom, 6)  // margin
                                         HStack(alignment: .center, spacing: 6) {
                                             Image(systemName: "questionmark.square.dashed")  // material: pin_drop
-                                            Text(order.title)
+                                            Text(orderRow.title)
                                                 .font(.system(.footnote, weight: .regular))
                                                 .foregroundStyle(StitchTheme.onSurfaceVariant)
                                         }
                                         .padding(.bottom, 10)  // margin
-                                        Text(order.paoAlentejano)
+                                        Text(orderRow.itemsSummary)
                                             .font(.system(.subheadline, weight: .regular))
                                             .foregroundStyle(StitchTheme.onSurface)
                                             .padding(.bottom, 12)  // margin
                                         HStack(alignment: .center, spacing: 0) {
                                             HStack(alignment: .center, spacing: 4) {
                                                 Image(systemName: "checkmark.circle.fill")  // material: check_circle
-                                                Text("ordersList.concluida")
+                                                Text("ordersList.text7")
                                                     .font(.system(.caption2, weight: .medium))
                                                     .foregroundStyle(StitchTheme.onSurfaceVariant)
                                             }
                                             Spacer(minLength: 0)
-                                            Button { onRepeat(order) } label: {
+                                            Button { onRepeat(orderRow) } label: {
                                                 HStack(alignment: .center, spacing: 6) {
                                                     Image(systemName: "questionmark.square.dashed")  // material: replay
                                                     Text("ordersList.repeat.button")
@@ -395,14 +376,14 @@ struct OrdersListView: View {
                             Text(state.brandName)
                                 .font(.system(.body, weight: .bold))
                                 .foregroundStyle(StitchTheme.primary)
-                            Text("ordersList.tradicaoFornadas")
+                            Text("ordersList.text8")
                                 .font(.system(.caption2, weight: .medium))
                                 .foregroundStyle(StitchTheme.secondary)
                         }
                     }
                     Spacer(minLength: 0)
                     HStack(alignment: .center, spacing: 8) {
-                        Text("ordersList.encomendas")
+                        Text("ordersList.text1")
                             .font(.system(.subheadline, weight: .regular))
                             .foregroundStyle(StitchTheme.onSurface)
                         Button {} label: {
@@ -413,7 +394,7 @@ struct OrdersListView: View {
                             .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("ordersList.notificacoesFornadas")
+                        .accessibilityLabel("ordersList.text17")
                         ZStack {
                             Image(systemName: "person")  // material: person
                         }
@@ -440,12 +421,12 @@ struct OrdersListView: View {
                     .frame(width: 48, height: 48)
                     .background(StitchTheme.primaryFixed, in: Capsule())
                     .padding(.bottom, 12)  // margin
-                    Text(state.levantamento)
+                    Text(state.pickupTitle)
                         .font(.system(.body, weight: .bold))
                         .foregroundStyle(StitchTheme.primary)
                         .multilineTextAlignment(.center)
                         .padding(.bottom, 4)  // margin
-                    Text("ordersList.apresenteEsteCodigo")
+                    Text("ordersList.text9")
                         .font(.system(.footnote, weight: .regular))
                         .foregroundStyle(StitchTheme.onSurfaceVariant)
                         .multilineTextAlignment(.center)
@@ -464,13 +445,13 @@ struct OrdersListView: View {
                     .padding(12)
                     .background(StitchTheme.surfaceContainerLow, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .padding(.bottom, 16)  // margin
-                    Text(state.lerAlc)
+                    Text(state.pickupCode)
                         .font(.system(.subheadline, weight: .bold))
                         .foregroundStyle(StitchTheme.primary)
                         .multilineTextAlignment(.center)
                         .padding(.bottom, 16)  // margin
                     Button { showPickupModal = false } label: {
-                        Text("ordersList.concluir")
+                        Text("ordersList.text10")
                             .font(.system(.subheadline, weight: .bold))
                             .foregroundStyle(StitchTheme.onPrimary)
                             .multilineTextAlignment(.center)
@@ -494,12 +475,12 @@ struct OrdersListView: View {
                 HStack(alignment: .center, spacing: 0) {
                     HStack(alignment: .center, spacing: 8) {
                         Image(systemName: "questionmark.square.dashed")  // material: shopping_basket
-                        Text("ordersList.itensAdicionadosAo")
+                        Text("ordersList.text11")
                             .font(.system(.caption, weight: .semibold))
                             .foregroundStyle(StitchTheme.onPrimary)
                     }
                     Spacer(minLength: 0)
-                    Text("ordersList.verCesto")
+                    Text("ordersList.text12")
                         .font(.system(.caption2, weight: .semibold))
                         .foregroundStyle(StitchTheme.secondaryFixed)
                 }
@@ -517,7 +498,7 @@ struct OrdersListView: View {
                     Button { /* # */ } label: {
                         VStack(alignment: .center, spacing: 0) {
                             Image(systemName: "house")  // material: home
-                            Text("ordersList.inicio")
+                            Text("ordersList.text13")
                                 .font(.system(.caption2, weight: .medium))
                                 .foregroundStyle(StitchTheme.onSurfaceVariant)
                                 .padding(.top, 2)  // margin
@@ -535,7 +516,7 @@ struct OrdersListView: View {
                     Button { /* # */ } label: {
                         VStack(alignment: .center, spacing: 0) {
                             Image(systemName: "storefront")  // material: storefront
-                            Text("ordersList.produtos")
+                            Text("ordersList.text14")
                                 .font(.system(.caption2, weight: .medium))
                                 .foregroundStyle(StitchTheme.onSurfaceVariant)
                                 .padding(.top, 2)  // margin
@@ -553,7 +534,7 @@ struct OrdersListView: View {
                     Button { /* # */ } label: {
                         VStack(alignment: .center, spacing: 0) {
                             Image(systemName: "doc.text")  // material: receipt_long
-                            Text("ordersList.encomendas")
+                            Text("ordersList.text1")
                                 .font(.system(.caption2, weight: .semibold))
                                 .foregroundStyle(StitchTheme.primaryContainer)
                                 .padding(.top, 2)  // margin
@@ -572,7 +553,7 @@ struct OrdersListView: View {
                     Button { /* # */ } label: {
                         VStack(alignment: .center, spacing: 0) {
                             Image(systemName: "questionmark.square.dashed")  // material: account_balance_wallet
-                            Text("ordersList.carteira")
+                            Text("ordersList.text15")
                                 .font(.system(.caption2, weight: .medium))
                                 .foregroundStyle(StitchTheme.onSurfaceVariant)
                                 .padding(.top, 2)  // margin
@@ -590,7 +571,7 @@ struct OrdersListView: View {
                     Button { /* # */ } label: {
                         VStack(alignment: .center, spacing: 0) {
                             Image(systemName: "questionmark.square.dashed")  // material: person_outline
-                            Text("ordersList.perfil")
+                            Text("ordersList.text16")
                                 .font(.system(.caption2, weight: .medium))
                                 .foregroundStyle(StitchTheme.onSurfaceVariant)
                                 .padding(.top, 2)  // margin
@@ -618,8 +599,19 @@ struct OrdersListView: View {
         }
     }
 
-    private func money(_ cents: Int) -> String {
-        (Decimal(cents) / 100).formatted(.currency(code: "EUR").locale(Locale(identifier: "pt")))
+    /// Tracker steps in display order (a subset of `Order.Status`).
+    private var statusSteps: [Order.Status] { [.placed, .preparing, .ready, .delivered] }
+
+    private func statusRank(_ value: Order.Status) -> Int { statusSteps.firstIndex(of: value) ?? -1 }
+
+    private func statusTitle(_ value: Order.Status) -> LocalizedStringKey {
+        switch value {
+        case .placed: "ordersList.status.placed"
+        case .preparing: "ordersList.status.preparing"
+        case .ready: "ordersList.status.ready"
+        case .delivered: "ordersList.status.delivered"
+        default: "ordersList.status.placed"  // TODO add a label key for the other cases of Order.Status
+        }
     }
 }
 

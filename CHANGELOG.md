@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0 — 2026-11-25
+
+State mode no longer copies mockup words into generated code, and it can plug into the app's own types.
+
+- **Semantic names.** Field names keep the shape-based `number`, `price`, `date`, row `title`/`detail`; every other text becomes `field1`, `field2`… (numbered per scope). New config `state.fields` renames them (key: source text, auto name, or `Item.name` for row fields).
+- **No mockup leakage.** L10n key slugs are `text1`, `text2`…, enum cases are `case1`… (config `state.enums.<n>.caseNames` names them) and accessibility-label keys follow the same rule. Free-text samples are neutral (`Store 1`, `Title 2`, `Item A`, `Text 3`); typed values (prices, `#1042`, quantities) are kept. New `state.samples` overrides a sample by field name. The sample comment no longer says "copied from the export".
+- **Money type from config.** `state.money` (`type`, `swiftSample`, `swiftFormat`, `kotlinType`, `kotlinSample`, `kotlinFormat`, with `{cents}` / `{v}` placeholders) works for Swift and Kotlin. With a configured type or format there is no `// cents` comment and no private `money()` helper. `types.currency` still works as a fallback.
+- **Existing domain enum.** `state.enums.<n>.existing: true` with `type`, `kotlinType`, `caseMap` (and optional `kotlinCaseMap`) maps the status texts to an enum the app already has: it is not declared, samples use the mapped case, the tracker iterates an explicit ordered steps list built from `caseMap`, and a private helper maps case → L10n key (a `default` branch covers domain cases without a label). Unmapped cases produce a warning. A row struct that would shadow the domain type (e.g. `Order` vs `Order.Status`) is renamed `<Item>Row` automatically.
+- **Active order split.** When a tracker or lines block sits next to a row group, the fields bound inside it move into a detail struct (`activeOrder: ActiveOrder?` by default) and the subtree is wrapped in `if let active = state.activeOrder` / `state.activeOrder?.let { active -> … }`. Configure with `state.detail` (`{field, type}`) or turn off with `false`.
+- State warnings (shadowed types, unmapped cases, fields bound inside and outside the detail block) are now printed on stderr.
+
 ## 0.5.2 — 2026-11-25
 
 - SwiftUI: `grid-cols-N` with `col-span-*` children now emits a private `SpanColumns` Layout, so 3/1/3 spans keep their 3:1:3 widths instead of equal columns.
