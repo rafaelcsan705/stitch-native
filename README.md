@@ -1,3 +1,4 @@
+<!-- mcp-name: io.github.rafaelcsan705/stitch-native -->
 <p align="center"><img src="assets/logo.svg" width="96" alt="stitch-native logo"></p>
 <h1 align="center">stitch-native</h1>
 <p align="center">Google Stitch screens → native <b>SwiftUI</b>, <b>Jetpack Compose</b> and plain <b>HTML</b>. CLI + MCP server.</p>
@@ -147,6 +148,22 @@ Prototype. Known gaps:
 - Absolute positioning, animations and `hover:` states are ignored.
 
 Roadmap: `visual_diff` tool (render vs Stitch screenshot) and a Claude skill.
+
+## Releasing
+
+Pushing a tag `vX.Y.Z` runs `.github/workflows/publish.yml`: tests, build, upload to PyPI (trusted publishing), then publish `server.json` to the MCP registry (GitHub OIDC). No secrets are stored. `pyproject.toml`, both versions in `server.json` and `VERSION` in `stitch_native_mcp.py` must agree (a unit test checks it); the tag must match too.
+
+One-time manual step on pypi.org (Account → Publishing → "Add a new pending publisher"), before the first tag:
+
+| Field | Value |
+|---|---|
+| PyPI project name | `stitch-native` |
+| Owner | `rafaelcsan705` |
+| Repository name | `stitch-native` |
+| Workflow name | `publish.yml` |
+| Environment name | `pypi` |
+
+Optionally create a GitHub environment named `pypi` (Settings → Environments) with required reviewers as a manual gate.
 
 ## License
 

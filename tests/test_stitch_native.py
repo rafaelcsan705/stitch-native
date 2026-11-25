@@ -356,5 +356,19 @@ class HtmlTargetTests(unittest.TestCase):
         self.assertIn("```css", mcp.call_tool("stitch_to_native", {"path": str(FIXTURE), "targets": "html"}))
 
 
+class ReleaseTests(unittest.TestCase):
+    def test_versions_agree(self):
+        import re
+        ver = re.search(r'^version = "([^"]+)"', (ROOT / "pyproject.toml").read_text(), re.M).group(1)
+        server = json.loads((ROOT / "server.json").read_text())
+        self.assertEqual(server["version"], ver)
+        self.assertEqual([p["version"] for p in server["packages"]], [ver] * len(server["packages"]))
+        self.assertEqual(mcp.VERSION, ver)
+
+    def test_readme_carries_mcp_name(self):
+        server = json.loads((ROOT / "server.json").read_text())
+        self.assertIn(f"mcp-name: {server['name']} -->", (ROOT / "README.md").read_text())
+
+
 if __name__ == "__main__":
     unittest.main()
