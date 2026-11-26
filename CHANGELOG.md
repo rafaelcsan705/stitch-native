@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 — 2026-11-26
 
 - **Native glass (`"glass": "native"`).** Config flag, default off (output unchanged). A node with `backdrop-blur-*` plus a translucent fill or a light translucent border becomes `style.glass` in the IR (blur, tint from a non-white fill, shape kept); its fake fill, light border and inset shadow are dropped, empty `absolute inset-0` blur/gradient layers next to or inside it are removed, and glass over glass is flattened. A blur alone is not glass.
   - SwiftUI: `.glassEffect(.regular, in: shape)` (`.regular.tint(...)` for a tint) behind a private `StitchGlass` modifier emitted once per file with `if #available(iOS 26, *)` and an `.ultraThinMaterial` fallback, so iOS 18 targets compile. Adjacent glass siblings in one stack are wrapped in `GlassEffectContainer` through a private `StitchGlassContainer`.
