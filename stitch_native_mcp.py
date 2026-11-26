@@ -22,7 +22,7 @@ SRC = {
     "url": {"type": "string", "description": "HTTPS download URL of the screen HTML (a public https URL; Stitch downloadUrls need OAuth, so pass that HTML via html instead)."},
 }
 MODE = {"mode": {"type": "string", "enum": ["layout", "state"], "default": "layout", "description": "state: stateless screen with a State struct + sample, Identifiable rows, a tab Picker, localized keys and callbacks (no ViewModel)."}}
-MAP = {"config": {"type": "object", "description": 'stitch-native.json contents: {"targets": ["swiftui","compose","html"], "colors": {token|#hex: expr}, "colorsHtml": {token|#hex: cssValue}, "fonts": {token: expr}, "icons": {material: sfSymbol}, "iconsCompose": {material: "Icons.X.Y"}, "iconsHtml": {material: text or inline svg}, "preview": {"colorScheme": "dark|light"}}. Alias: map. Without config, config_path or map, the server looks for stitch-native.json next to `path` and in its parent directories (first one found).'},
+MAP = {"config": {"type": "object", "description": 'stitch-native.json contents: {"targets": ["swiftui","compose","html"], "colors": {token|#hex: expr}, "colorsHtml": {token|#hex: cssValue}, "fonts": {token: expr}, "icons": {material: sfSymbol}, "iconsCompose": {material: "Icons.X.Y"}, "iconsHtml": {material: text or inline svg}, "preview": {"colorScheme": "dark|light"}, "glass": "native"}. `glass: "native"` turns Stitch\'s fake Liquid Glass (backdrop-blur + translucent fill/border layers) into native glass: SwiftUI .glassEffect with an iOS 18 material fallback, Compose translucent surface + hairline, HTML keeps backdrop-filter. Default off. Alias: map. Without config, config_path or map, the server looks for stitch-native.json next to `path` and in its parent directories (first one found).'},
        "config_path": {"type": "string", "description": "Path to a stitch-native.json. Used when config is not given."}}
 TARGETS_ARG = {"targets": {"type": "array", "items": {"type": "string", "enum": list(sn.TARGETS)}, "description": "Ecosystems to emit, out of swiftui, compose, html. Overrides the config's `targets`; without either: swiftui + compose. A comma-separated string is also accepted."}}
 NAME = {"name": {"type": "string", "description": "Generated view/composable name.", "default": "StitchScreen"}}
@@ -139,9 +139,10 @@ PROMPTS = {
 
 
 def call_tool(name: str, a: dict) -> str:
-    th, ir, warn = sn.parse(load_html(a))
+    cfg0 = a.get("existing") or load_cfg(a) if name == "init_config" else load_cfg(a)
+    th, ir, warn = sn.parse(load_html(a), sn.glass_enabled(cfg0))
     if name == "init_config":
-        cfg, unmapped = sn.init_config([ir], a.get("existing") or load_cfg(a), a.get("targets"))
+        cfg, unmapped = sn.init_config([ir], cfg0, a.get("targets"))
         return (json.dumps(cfg, indent=2, ensure_ascii=False) + "\n\n"
                 + "\n".join(f"unmapped {k} ({len(v)}): {', '.join(v) or '-'}" for k, v in unmapped.items()))
     if name == "extract_tokens":

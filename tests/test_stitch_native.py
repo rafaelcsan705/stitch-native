@@ -380,3 +380,237 @@ class ReleaseTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+GLASS_FIXTURE = ROOT / "fixtures" / "fornada-glass-header.html"
+GLASS_FIXTURE_B = ROOT / "fixtures" / "fornada-glass-ios-b.html"
+GLASS_CFG = {"glass": "native"}
+
+
+def glass_nodes(ir):
+    """Every IR node (box or text) that carries a `glass` style."""
+    found = []
+
+    def walk(x):
+        if isinstance(x, dict):
+            for key in ("style", "box"):
+                if isinstance(x.get(key), dict) and x[key].get("glass"):
+                    found.append(x)
+            for v in x.values():
+                walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+    walk(ir)
+    return found
+
+
+def gs(node):
+    """The style dict holding the glass (text nodes keep their box style apart)."""
+    return node["box"] if node.get("kind") == "text" else node["style"]
+
+
+def snippet(body: str) -> str:
+    return f"<html><body class=\"flex flex-col\">{body}</body></html>"
+
+
+def glass_ir(body: str):
+    return sn.parse(snippet(body), True)
+
+
+class GlassTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.html = GLASS_FIXTURE.read_text(encoding="utf-8")
+        cls.th, cls.ir, cls.warn = sn.parse(cls.html, True)
+
+    def render(self, target, ir=None, th=None, name="GlassHeader"):
+        return sn.TARGETS[target]["emitter"](th or self.th, GLASS_CFG).screen(ir or self.ir, name)
+
+    # flag off
+    def test_flag_off_is_unchanged(self):
+        th, ir, _ = sn.parse(self.html)
+        self.assertNotIn("glass", json.dumps(ir))
+        self.assertNotIn("_blur", json.dumps(ir))
+        for target in ("swiftui", "compose", "html"):
+            out = sn.TARGETS[target]["emitter"](th, {}).screen(ir, "X")
+            self.assertNotIn("stitchGlass", out)
+            self.assertNotIn("backdrop-filter", out)
+            self.assertNotIn("surfaceContainer", out)
+        self.assertEqual(sn.glass_enabled({"glass": "off"}), False)
+        self.assertEqual(sn.glass_enabled(None), False)
+        self.assertEqual(sn.glass_enabled(GLASS_CFG), True)
+
+    # detection
+    def test_header_and_badges_are_glass(self):
+        nodes = glass_nodes(self.ir)
+        self.assertEqual(len(nodes), 3)  # header bar, "Fornos" badge, hero "Massa mae" badge
+        header = next(n for n in nodes if n.get("tag") == "header")
+        g = header["style"]["glass"]
+        self.assertEqual(g["blur"], 40)  # backdrop-blur-2xl
+        self.assertIsNone(g["tint"])  # a near-white fill is no tint
+        self.assertNotIn("bg", header["style"])  # the fake fill is gone
+
+    def test_inner_header_layer_is_flattened(self):
+        header = next(n for n in glass_nodes(self.ir) if n.get("tag") == "header")
+        inner = header["children"][0]
+        self.assertNotIn("glass", inner["style"])  # glass over glass: not a second glass
+        self.assertNotIn("bg", inner["style"])  # its fake fill is dropped
+        self.assertEqual(inner["style"].get("divider"), "b")  # a non-white divider stays
+
+    def test_blur_less_chips_and_opaque_cta_are_not_glass(self):
+        swift = self.render("swiftui")
+        self.assertEqual(swift.count(".stitchGlass("), 3)
+        self.assertIn("Color.white.opacity(0.9), in: Capsule())", swift)  # chips keep their literal fill
+
+    def test_light_border_is_dropped_and_tint_kept(self):
+        _, ir = glass_ir('<div class="rounded-xl bg-black/30 backdrop-blur-md border border-white/20"><span class="text-sm">x</span></div>')[:2]
+        (node,) = glass_nodes(ir)
+        st = gs(node)
+        g = st["glass"]
+        self.assertEqual((g["blur"], g["tint"]["hex"], g["tint"]["alpha"]), (12, "000000", 0.3))
+        self.assertNotIn("border", st)
+        self.assertNotIn("bg", st)
+        self.assertEqual(st["radius"], 12)  # the shape stays
+
+    def test_border_only_glass(self):
+        ir = glass_ir('<div class="rounded-full backdrop-blur-sm border border-white/30 p-2"><span class="text-sm">x</span></div>')[1]
+        (node,) = glass_nodes(ir)
+        self.assertIsNone(gs(node)["glass"]["fill"])
+        self.assertEqual(gs(node)["glass"]["border"]["alpha"], 0.3)
+
+    def test_blur_only_overlay_is_not_glass(self):
+        ir = glass_ir('<div class="p-4 backdrop-blur-md"><span class="text-sm">x</span></div>'
+                      '<div class="absolute inset-0 backdrop-blur-sm"></div>')[1]
+        self.assertEqual(glass_nodes(ir), [])
+        self.assertNotIn("_blur", json.dumps(ir))
+        # opaque or non-light borders do not make glass either
+        ir = glass_ir('<div class="p-4 backdrop-blur-md bg-white border border-[#5B8DC9]/20"><span class="text-sm">x</span></div>')[1]
+        self.assertEqual(glass_nodes(ir), [])
+
+    def test_translucent_fill_without_blur_is_not_glass(self):
+        ir = glass_ir('<div class="p-4 bg-white/70 border border-white/20"><span class="text-sm">x</span></div>')[1]
+        self.assertEqual(glass_nodes(ir), [])
+
+    # decoration layers
+    def test_decoration_layer_removed_next_to_glass(self):
+        # the hero scrim (absolute inset-0 gradient) is an empty sibling of the glass badge
+        def empty_divs(ir):
+            n = 0
+            stack = [ir]
+            while stack:
+                x = stack.pop()
+                if isinstance(x, dict):
+                    n += x.get("kind") == "box" and not x.get("children") and x.get("tag") == "div"
+                    stack += list(x.values())
+                elif isinstance(x, list):
+                    stack += x
+            return n
+        _, off, _ = sn.parse(self.html)
+        self.assertEqual(empty_divs(off) - empty_divs(self.ir), 1)
+        self.assertNotIn('"deco"', json.dumps(self.ir))
+
+    def test_decoration_layer_inside_glass_and_beside_it(self):
+        ir = glass_ir('<div class="relative rounded-2xl bg-white/60 backdrop-blur-xl border border-white/30">'
+                      '<div class="absolute inset-0 bg-gradient-to-b from-white/40 to-transparent"></div>'
+                      '<div class="absolute inset-0 backdrop-blur-md bg-white/10"></div>'
+                      '<span class="text-sm">x</span></div>')[1]
+        (node,) = glass_nodes(ir)
+        self.assertEqual(node["kind"], "text")  # only the text is left, so the box collapsed into it
+        self.assertNotIn("gradient", json.dumps(ir))
+        self.assertEqual(json.dumps(ir).count('"children": []'), 0)
+        # a decoration layer with no glass around it is left alone
+        ir = glass_ir('<div class="relative p-4"><div class="absolute inset-0 bg-gradient-to-t from-black/50"></div><span class="text-sm">x</span></div>')[1]
+        self.assertEqual(len(ir["children"][0]["children"]), 2)
+
+    def test_layer_with_content_is_not_decoration(self):
+        ir = glass_ir('<div class="rounded-xl bg-white/60 backdrop-blur-md"><div class="absolute inset-0 bg-black/20"><span class="text-sm">keep</span></div></div>')[1]
+        self.assertIn("keep", json.dumps(ir))
+
+    def test_opaque_inset_layer_is_not_decoration(self):
+        ir = glass_ir('<div class="rounded-xl bg-white/60 backdrop-blur-md"><div class="absolute inset-0 bg-surface"></div><span class="text-sm">x</span></div>')[1]
+        self.assertEqual(len(glass_nodes(ir)), 1)
+        self.assertEqual(len(glass_nodes(ir)[0]["children"]), 2)
+
+    # emitters
+    def test_swiftui_glass_and_availability_wrapper(self):
+        out = self.render("swiftui")
+        self.assertIn(".stitchGlass(in: Capsule())", out)
+        self.assertEqual(out.count("private struct StitchGlass<S: Shape>: ViewModifier"), 1)
+        self.assertIn("if #available(iOS 26, *)", out)
+        self.assertIn("content.glassEffect(.regular, in: shape)", out)
+        self.assertIn(".regular.tint(tint)", out)
+        self.assertIn("shape.fill(.ultraThinMaterial)", out)
+        self.assertNotIn("StitchGlassContainer", out)
+
+    def test_swiftui_tint_and_container(self):
+        th, ir, _ = glass_ir('<div class="flex gap-2"><div class="rounded-full bg-white/70 backdrop-blur-md border border-white/20"><span class="text-sm">A</span></div>'
+                             '<div class="rounded-full bg-black/30 backdrop-blur-md"><span class="text-sm">B</span></div></div>')
+        out = sn.SwiftEmitter(th, GLASS_CFG).screen(ir, "V")
+        self.assertIn(".stitchGlass(in: Capsule(), tint: Color.black.opacity(0.3))", out)
+        self.assertEqual(out.count("StitchGlassContainer {"), 1)
+        self.assertIn("GlassEffectContainer { content }", out)
+        one = sn.SwiftEmitter(th, GLASS_CFG).screen(glass_ir('<div class="rounded-full bg-white/70 backdrop-blur-md"><span class="text-sm">A</span></div>')[1], "V")
+        self.assertNotIn("StitchGlassContainer", one)
+
+    def test_swiftui_modifier_only_in_files_that_use_glass(self):
+        em = sn.SwiftEmitter(self.th, GLASS_CFG)
+        self.assertIn("StitchGlass", em.screen(self.ir, "A"))
+        plain = em.screen(glass_ir('<p class="text-sm">no glass</p>')[1], "B")  # same emitter, next screen
+        self.assertNotIn("StitchGlass", plain)
+
+    def test_compose_translucent_surface_and_hairline(self):
+        out = self.render("compose", name="GlassHeaderScreen")
+        self.assertIn("MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.75f)", out)
+        self.assertIn("border(1.dp, Color.White.copy(alpha = 0.2f), RectangleShape)", out)
+        self.assertIn("CircleShape).background(MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.9f), CircleShape)", out)
+        self.assertNotIn("blur", out.lower())
+        th, ir, _ = glass_ir('<div class="rounded-xl bg-black/30 backdrop-blur-md"><span class="text-sm">B</span></div>')
+        tinted = sn.ComposeEmitter(th, GLASS_CFG).screen(ir, "S")
+        self.assertIn("Color.Black.copy(alpha = 0.3f), RoundedCornerShape(12.dp))", tinted)
+
+    def test_html_keeps_backdrop_filter(self):
+        out = self.render("html")
+        self.assertIn("backdrop-filter: blur(40px)", out)
+        self.assertIn("-webkit-backdrop-filter: blur(12px)", out)
+        self.assertIn("background-color: rgba(255, 255, 255, 0.9); border: 1px solid rgba(255, 255, 255, 0.6)", out)
+
+    def test_ios_variant_b_glass(self):
+        th, ir, _ = sn.parse(GLASS_FIXTURE_B.read_text(encoding="utf-8"), True)
+        nodes = glass_nodes(ir)
+        self.assertEqual(len(nodes), 4)  # price badge, two grid price pills, floating tab bar
+        self.assertTrue(any(gs(n).get("radius") >= 999 for n in nodes if n.get("tag") == "nav"))
+        swift = sn.SwiftEmitter(th, GLASS_CFG).screen(ir, "V")
+        self.assertIn(".stitchGlass(in: Capsule())", swift)
+        self.assertEqual(swift.count("#available(iOS 26, *)"), 1)
+
+    # goldens
+    def test_goldens(self):
+        for target, name, golden in (("swiftui", "GlassHeaderView", "GlassHeaderView.swift"),
+                                     ("compose", "GlassHeaderScreen", "GlassHeaderScreen.kt"),
+                                     ("html", "GlassHeader", "GlassHeader.html")):
+            out = sn.TARGETS[target]["emitter"](self.th, GLASS_CFG).screen(self.ir, name)
+            self.assertEqual(out.strip(), (ROOT / "examples" / golden).read_text(encoding="utf-8").strip(), golden)
+
+    def test_cli_and_mcp_read_the_flag(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Path(d) / "c.json"
+            cfg.write_text(json.dumps(GLASS_CFG))
+            run = lambda *extra: subprocess.run([sys.executable, str(ROOT / "stitch_native.py"), "swiftui", str(GLASS_FIXTURE), *extra],
+                                                capture_output=True, text=True, check=True).stdout
+            self.assertIn(".stitchGlass(", run("--config", str(cfg)))
+            self.assertNotIn(".stitchGlass(", run())
+        on = mcp.call_tool("stitch_to_swiftui", {"html": self.html, "config": GLASS_CFG})
+        off = mcp.call_tool("stitch_to_swiftui", {"html": self.html})
+        self.assertIn(".stitchGlass(", on)
+        self.assertNotIn(".stitchGlass(", off)
+        self.assertIn("backdrop-filter", mcp.call_tool("stitch_to_html", {"html": self.html, "config": GLASS_CFG}))
+        self.assertIn('"glass"', mcp.call_tool("stitch_to_ir", {"html": self.html, "config": GLASS_CFG}))
+
+    # real exports: parser robustness found while fetching the fixtures
+    def test_tailwind_config_trailing_semicolon_and_single_quotes(self):
+        cfg = sn.parse_tailwind_config("<script id='x'>tailwind.config = { theme: { extend: { colors: { 'on-x': '#112233' }, "
+                                       "fontFamily: { sans: ['\"Inter\"', 'sans-serif'] } } } };</script>")
+        self.assertEqual(cfg["colors"]["on-x"], "#112233")
+        self.assertEqual(cfg["fontFamily"]["sans"][0], '"Inter"')

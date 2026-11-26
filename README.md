@@ -99,6 +99,24 @@ python3 stitch_native.py init screen.html --targets swiftui,html   # writes only
 - Layout mode only: `--mode state` / `mode: "state"` is an error for `html`; `stitch_to_native` in state mode skips it with a warning.
 - Examples: [`examples/MatchStats.html`](examples/MatchStats.html), [`examples/OrdersList.html`](examples/OrdersList.html).
 
+### Native glass
+
+Stitch fakes iOS Liquid Glass with stacked layers: `backdrop-blur-*` plus a translucent fill (`bg-white/70`), a light border (`border-white/20`) and sometimes an empty `absolute inset-0` blur/gradient layer. Off by default (the blur is ignored and every layer is ported literally). Turn it on in `stitch-native.json` (or the MCP `config` argument):
+
+```json
+{ "glass": "native" }
+```
+
+A node is glass when it has `backdrop-blur-*` **and** a translucent fill or a light translucent border (a blur alone is not glass). Its fake fill, light border and inset shadow are dropped; its shape is kept, and a non-white fill becomes a tint. Empty `absolute inset-0` layers that only carry blur, gradient or a translucent fill are removed next to or inside real glass. Glass inside glass is flattened to one layer.
+
+| Target | Output |
+|---|---|
+| SwiftUI | `.stitchGlass(in: shape)` → `.glassEffect(.regular, in: shape)` on iOS 26, `.ultraThinMaterial` before. A private `StitchGlass` modifier is emitted once per file, so iOS 18 targets compile. Two or more glass siblings in one stack are wrapped in `GlassEffectContainer` (via a private pass-through `StitchGlassContainer` before iOS 26) |
+| Compose | No native glass: translucent `surfaceContainer` fill (or the tint) at the original alpha, plus a 1.dp white hairline, same shape. No blur library |
+| HTML | Keeps `backdrop-filter: blur(Npx)`, the fill and the border (real in a browser) |
+
+Limits: only Tailwind classes are read, so glass declared in the export's own `<style>` (e.g. a `.liquid-glass-tab` class) is not detected; gradient scrims are not rendered by any target, so removing them changes nothing visible.
+
 ### Map tokens to your design system
 
 ```json
@@ -111,7 +129,7 @@ python3 stitch_native.py init screen.html      # writes stitch-native.json, list
 python3 stitch_native.py swiftui screen.html   # auto-loads ./stitch-native.json (or --config path)
 ```
 
-`stitch-native.json` also takes `targets`, `icons` (Material → SF Symbol), `iconsCompose`
+`stitch-native.json` also takes `targets`, `glass` (see Native glass), `icons` (Material → SF Symbol), `iconsCompose`
 (Material → `Icons.X.Y`), `iconsHtml`, `colorsHtml`, `preview.colorScheme` and `output` folders. `null` entries fall back to the theme.
 
 ## MCP server

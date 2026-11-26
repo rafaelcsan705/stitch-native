@@ -15,7 +15,8 @@ Targets: swiftui, compose, html. `init --targets` writes only the keys of those 
 in the config (default swiftui + compose); the MCP `stitch_to_native` tool emits the config's `targets`.
 
 Config: --config c.json (alias --map), else ./stitch-native.json if present. Keys: targets, colors, fonts,
-icons (SF Symbols), iconsCompose, iconsHtml, colorsHtml, preview.colorScheme, output. null = unmapped.
+icons (SF Symbols), iconsCompose, iconsHtml, colorsHtml, preview.colorScheme, output, glass ("native" = Liquid Glass
+for blur + translucent layers; default off). null = unmapped.
 
 Standard library only. Prototype: covers the Tailwind subset Stitch emits on mobile screens.
 """
@@ -37,16 +38,19 @@ TW_WEIGHTS = {
     "semibold": 600, "bold": 700, "extrabold": 800, "black": 900,
 }
 TW_RADIUS = {"": 4, "sm": 2, "md": 6, "lg": 8, "xl": 12, "2xl": 16, "3xl": 24, "full": 9999}
+BLUR_PX = {"none": 0, "sm": 4, "": 8, "md": 12, "lg": 16, "xl": 24, "2xl": 40, "3xl": 64}  # Tailwind backdrop-blur-* (px)
 MAX_W = {"xs": 320, "sm": 384, "md": 448, "lg": 512, "xl": 576, "2xl": 672, "3xl": 768,  # Tailwind max-w-* (px)
          "4xl": 896, "5xl": 1024, "6xl": 1152, "7xl": 1280}
 
 
 def parse_tailwind_config(html: str) -> dict:
-    m = re.search(r"tailwind\.config\s*=\s*(\{.*?\})\s*</script>", html, re.S)
+    m = re.search(r"tailwind\.config\s*=\s*(\{.*?\})\s*;?\s*</script>", html, re.S)
     if not m:
         return {}
     js = m.group(1)
     js = re.sub(r"//.*", "", js)
+    js = re.sub(r"\"(?:[^\"\\]|\\.)*\"|'((?:[^'\\]|\\.)*)'",  # JS single-quoted strings -> JSON
+                lambda m: json.dumps(m.group(1).replace("\\'", "'")) if m.group(1) is not None else m.group(0), js)
     js = re.sub(r"([{,]\s*)([A-Za-z_][\w-]*)\s*:", r'\1"\2":', js)  # quote bare keys
     js = re.sub(r",(\s*[}\]])", r"\1", js)  # trailing commas
     try:
@@ -158,7 +162,13 @@ def resolve_classes(classes: list[str], style: str, th: Theme, warn: list) -> di
     for c in classes:
         if ":" in c:  # hover:, dark:, active: -> not a static design property
             continue
-        if c in ("flex", "inline-flex"):
+        if getattr(th, "glass", False) and (m := re.fullmatch(r"backdrop-blur(?:-(.+))?", c)):
+            blur = BLUR_PX.get(m.group(1) or "")
+            if blur is None and m.group(1) and m.group(1).startswith("["):
+                blur = to_px(m.group(1)[1:-1])
+            if blur:  # backdrop-blur-none (0) is no blur
+                s["_blur"] = blur
+        elif c in ("flex", "inline-flex"):
             s.setdefault("layout", "row")
         elif c == "flex-col":
             s["layout"] = "column"
@@ -283,6 +293,72 @@ def overlay_role(node, classes: list[str]) -> str | None:
     return "toast"
 
 
+# ---- native glass ("glass": "native" in the config): Stitch fakes Liquid Glass with stacked layers
+
+_DECO_CLASS = re.compile(r"absolute|inset-(?:x-|y-)?0|-?z-\d+|pointer-events-none|overflow-hidden|rounded(?:-.+)?|opacity-\d+|"
+                         r"backdrop-blur(?:-.+)?|blur(?:-.+)?|bg-.+|from-.+|via-.+|to-.+|border(?:-.+)?|shadow(?:-.+)?")
+
+
+def _luminance(c: dict) -> float:
+    h = c["hex"].lstrip("#")
+    r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _translucent(c: dict | None) -> bool:
+    return bool(c) and c.get("alpha") is not None and 0 < c["alpha"] < 1
+
+
+def _has_content(node) -> bool:
+    for ch in node.children:
+        if isinstance(ch, str) or ch.tag in ("img", "svg", "button", "a", "input") \
+                or "material-symbols-outlined" in ch.attrs.get("class", "").split() or _has_content(ch):
+            return True
+    return False
+
+
+def is_deco(node, classes: list[str]) -> bool:
+    """Empty absolute `inset-0` layer that only carries blur / gradient / translucent fill (a fake-glass decoration)."""
+    cs = set(classes)
+    if "absolute" not in cs or not ("inset-0" in cs or {"inset-x-0", "inset-y-0"} <= cs) or _has_content(node):
+        return False
+    if not all(_DECO_CLASS.fullmatch(c) for c in classes):
+        return False
+    for c in classes:
+        if c.startswith("bg-") and not (c.startswith("bg-gradient") or "/" in c or c == "bg-transparent"):
+            return False  # an opaque fill is a real surface, not decoration
+    return any(c.startswith(("backdrop-blur", "blur", "bg-", "from-", "via-", "to-")) for c in classes)
+
+
+def apply_glass(s: dict, in_glass: bool) -> bool:
+    """Turn a blur + translucent fill/light border node into s["glass"], dropping the fake layers. True = glass."""
+    blur = s.pop("_blur", None)
+    if blur is None:
+        return False
+    bg = s.get("bg")
+    fill = bg if _translucent(bg) else None
+    bcol = s.get("borderColor") or (s.get("border") or {}).get("color")
+    border = bcol if _translucent(bcol) and _luminance(bcol) >= 0.8 else None
+    if not fill and not border:
+        return False  # a blur alone is not glass
+    side = s.get("divider") if border else None
+    if fill:
+        del s["bg"]
+    if border:
+        for k in ("border", "borderColor", "divider"):
+            s.pop(k, None)
+    if in_glass:  # a second fake layer on top of real glass: only drop the fake parts
+        return False
+    tint = fill if fill and _luminance(fill) < 0.85 else None
+    s["glass"] = {"blur": blur, "tint": tint, "fill": fill, "border": border, "borderSide": side}
+    return True
+
+
+def _glass_of(n: dict):
+    st = n.get("box") if n.get("kind") == "text" else n.get("style")
+    return (st or {}).get("glass")
+
+
 def build_ir(node, th: Theme, warn: list, inherited: dict | None = None, overlays: list | None = None):
     inherited = inherited or {}
     if isinstance(node, str):
@@ -296,8 +372,9 @@ def build_ir(node, th: Theme, warn: list, inherited: dict | None = None, overlay
             overlays.append({"role": role, "id": node.attrs.get("id") or f"{role}{len(overlays) + 1}", "node": inner})
         return None
     if node.tag == "svg":
-        return {"kind": "vector", "style": resolve_classes(classes, node.attrs.get("style", ""), th, warn),
-                "label": node.attrs.get("aria-label")}
+        vs = resolve_classes(classes, node.attrs.get("style", ""), th, warn)
+        vs.pop("_blur", None)
+        return {"kind": "vector", "style": vs, "label": node.attrs.get("aria-label")}
     if node.tag in ("button", "a"):
         a = node.attrs
         bare = Node("div", a, node.parent)
@@ -312,8 +389,18 @@ def build_ir(node, th: Theme, warn: list, inherited: dict | None = None, overlay
                 "current": a.get("aria-current") is not None}
     if "material-symbols-outlined" in classes:
         name = "".join(ch for ch in node.children if isinstance(ch, str))
-        return {"kind": "icon", "material": name, "style": resolve_classes(classes, "", th, warn)}
+        icon_style = resolve_classes(classes, "", th, warn)
+        icon_style.pop("_blur", None)
+        return {"kind": "icon", "material": name, "style": icon_style}
     style = resolve_classes(classes, node.attrs.get("style", ""), th, warn)
+    glass_on = getattr(th, "glass", False)
+    deco = glass_on and is_deco(node, classes)
+    is_glass = False
+    if glass_on:
+        if deco:
+            style.pop("_blur", None)
+        else:
+            is_glass = apply_glass(style, getattr(th, "glass_depth", 0) > 0)
     text_keys = ("color", "fontToken", "fontSize", "weight", "family", "familyToken", "textAlign", "uppercase", "lineLimit")
     inh = dict(inherited)
     for k in text_keys:
@@ -321,8 +408,17 @@ def build_ir(node, th: Theme, warn: list, inherited: dict | None = None, overlay
             inh[k] = style[k]
     if node.tag == "img":
         return {"kind": "image", "src": node.attrs.get("src"), "alt": node.attrs.get("data-alt") or node.attrs.get("alt"), "style": style}
+    if is_glass:
+        th.glass_depth = getattr(th, "glass_depth", 0) + 1
     kids = [build_ir(ch, th, warn, inh, overlays) for ch in node.children]
+    if is_glass:
+        th.glass_depth -= 1
     kids = [k for k in kids if k]
+    if glass_on:
+        if is_glass or any(_glass_of(k) for k in kids):  # decoration layers next to / inside real glass are redundant
+            kids = [k for k in kids if not k.get("deco")]
+        for k in kids:
+            k.pop("deco", None)
     # an element whose only content is text becomes a text node carrying the box style
     if len(kids) == 1 and kids[0]["kind"] == "text" and "layout" not in style:
         t = kids[0]
@@ -331,11 +427,19 @@ def build_ir(node, th: Theme, warn: list, inherited: dict | None = None, overlay
     out = {"kind": "box", "tag": node.tag, "style": style, "children": kids}
     if node.attrs.get("id"):
         out["id"] = node.attrs["id"]
+    if deco:
+        out["deco"] = True
     return out
 
 
-def parse(html: str):
+def glass_enabled(cfg: dict | None) -> bool:
+    """`"glass": "native"` in the config turns the fake-glass layer detection on."""
+    return (cfg or {}).get("glass") == "native"
+
+
+def parse(html: str, glass: bool = False):
     th = Theme(parse_tailwind_config(html))
+    th.glass = glass
     b = DomBuilder()
     b.feed(html)
     body = next((c for c in b.root.children if isinstance(c, Node) and c.tag == "html"), b.root)
@@ -1086,6 +1190,7 @@ class SwiftEmitter:
                 return "999" if v >= 999 else self.num(v)
             shape = (f"UnevenRoundedRectangle(topLeadingRadius: {rr('l')}, bottomLeadingRadius: {rr('l')}, "
                      f"bottomTrailingRadius: {rr('r')}, topTrailingRadius: {rr('r')})")
+        g = s.get("glass")
         if "bg" in s:
             fill = self.color(s["bg"])
             out.append(f".background({fill}, in: {shape})" if shape else f".background({fill})")
@@ -1098,7 +1203,11 @@ class SwiftEmitter:
             edge = {"b": "bottom", "t": "top", "l": "leading", "r": "trailing"}[s["divider"]]
             align = {"bottom": ".bottom", "top": ".top", "leading": ".leading", "trailing": ".trailing"}[edge]
             out.append(f".overlay(alignment: {align}) {{ {col}.frame({'height' if edge in ('top','bottom') else 'width'}: 1) }}")
-        if shape and not "bg" in s and not "border" in s:
+        if g:  # native Liquid Glass (iOS 26) with a material fallback; replaces the fake fill / border
+            tint = f", tint: {self.color(g['tint'])}" if g.get("tint") else ""
+            out.append(f".stitchGlass(in: {shape or 'Rectangle()'}{tint})")
+            self.need_glass = True
+        elif shape and not "bg" in s and not "border" in s:
             out.append(f".clipShape({shape})")
         mg = s.get("margin", {})
         for side, name in (("t", ".top"), ("b", ".bottom"), ("l", ".leading"), ("r", ".trailing")):
@@ -1469,6 +1578,7 @@ class SwiftEmitter:
                     sub.append(f"{inner}        .frame(maxWidth: .infinity)")
             lines += sub
         lines.append(f"{inner}}}")
+        glass_kids = sum(1 for c in kids if _glass_of(c))
         mods = self.modifiers(s, inner)
         if s.get("justify") == "between" and layout == "row":
             mods.insert(0, ".frame(maxWidth: .infinity)")
@@ -1479,6 +1589,9 @@ class SwiftEmitter:
             lines.append(f"{ind}}}")
             if isinstance(s.get("height"), float):
                 lines.append(f"{ind}.frame(height: {self.num(s['height'])})")
+        elif glass_kids >= 2:  # adjacent glass siblings blend through one container (iOS 26)
+            lines = [f"{ind}StitchGlassContainer {{"] + ["    " + l for l in lines] + [f"{ind}}}"]
+            self.need_glass_container = True
         return lines
 
     @staticmethod
@@ -1490,10 +1603,14 @@ class SwiftEmitter:
         out = self._screen(ir, name)
         if getattr(self, "need_span", False) and type(self) is SwiftEmitter:
             out = out.rstrip("\n") + "\n" + SPAN_COLUMNS
+        if getattr(self, "need_glass", False) and type(self) is SwiftEmitter:
+            out = out.rstrip("\n") + "\n" + (GLASS_SWIFT_CONTAINER if getattr(self, "need_glass_container", False) else "") + GLASS_SWIFT
         return out
 
     def _screen(self, ir: dict, name: str) -> str:
         self.need_span = False
+        self.need_glass = False
+        self.need_glass_container = False
         self.st = ir.get("state")
         if self.st:
             return self.screen_state(ir, name)
@@ -1528,6 +1645,58 @@ class SwiftEmitter:
                 + head + "\n".join(body) +
                 "\n    }\n}\n\n#Preview {\n    " + name + f"()\n        .preferredColorScheme(.{scheme})\n}}\n")
 
+
+GLASS_SWIFT = """
+// Native Liquid Glass on iOS 26; a material fallback on earlier targets ("glass": "native").
+private struct StitchGlass<S: Shape>: ViewModifier {
+    let shape: S
+    let tint: Color?
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) {
+            if let tint {
+                content.glassEffect(.regular.tint(tint), in: shape)
+            } else {
+                content.glassEffect(.regular, in: shape)
+            }
+        } else {
+            content.background {
+                ZStack {
+                    shape.fill(.ultraThinMaterial)
+                    if let tint {
+                        shape.fill(tint)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private extension View {
+    func stitchGlass<S: Shape>(in shape: S, tint: Color? = nil) -> some View {
+        modifier(StitchGlass(shape: shape, tint: tint))
+    }
+}
+"""
+
+GLASS_SWIFT_CONTAINER = """
+/// Lets adjacent glass siblings blend on iOS 26; a plain pass-through before.
+private struct StitchGlassContainer<Content: View>: View {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        if #available(iOS 26, *) {
+            GlassEffectContainer { content }
+        } else {
+            content
+        }
+    }
+}
+"""
 
 SPAN_COLUMNS = """
 /// CSS grid col-span: each column gets free width (after spacing) in proportion to its span.
@@ -1619,12 +1788,19 @@ class ComposeEmitter(SwiftEmitter):
             if center and not isinstance(w, float):
                 m.append("fillMaxWidth()")
         sh = self.shape(s)
+        g = s.get("glass")
+        if g:  # no native glass on Android: translucent surface + white hairline, same shape
+            a = min(g["border"]["alpha"], 0.3) if g.get("border") else 0.2
+            fill = self.color(g["tint"]) if g.get("tint") else \
+                f"MaterialTheme.colorScheme.surfaceContainer.copy(alpha = {(g['fill'] or {}).get('alpha') or 0.7:g}f)"
+            m.append(f"border(1.dp, Color.White.copy(alpha = {a:g}f), {sh or 'RectangleShape'})")
+            m.append(f"background({fill}, {sh or 'RectangleShape'})")
         if "border" in s and "divider" not in s:
             col = self.color(s["border"].get("color") or {"hex": "3c4a3e", "token": "outline-variant", "alpha": None})
             m.append(f"border(1.dp, {col}, {sh or 'RectangleShape'})")
         if "bg" in s:
             m.append(f"background({self.color(s['bg'])}, {sh})" if sh else f"background({self.color(s['bg'])})")
-        elif sh:
+        elif sh and not g:
             m.append(f"clip({sh})")
         pad = s.get("pad", {})
         if pad:
@@ -2260,6 +2436,14 @@ img { display: block; max-width: 100%%; }
             for side, v in cs.items():
                 d += [f"border-{c}-radius: {self.px(min(v, 9999))}" for c in corner[side]]
             shape = True
+        g = s.get("glass")
+        if g:  # backdrop-filter is real in a browser: keep the blur, fill and border
+            d += [f"-webkit-backdrop-filter: blur({self.px(g['blur'])})", f"backdrop-filter: blur({self.px(g['blur'])})"]
+            if g.get("fill"):
+                d.append(f"background-color: {self.color(g['fill'])}")
+            if g.get("border"):
+                edge = f"border-{ {'b': 'bottom', 't': 'top', 'l': 'left', 'r': 'right'}[g['borderSide']] }" if g.get("borderSide") else "border"
+                d.append(f"{edge}: 1px solid {self.color(g['border'])}")
         if "bg" in s:
             d.append(f"background-color: {self.color(s['bg'])}")
         if "border" in s and "divider" not in s:
@@ -2268,7 +2452,7 @@ img { display: block; max-width: 100%%; }
         if s.get("divider"):
             col = self.color(s.get("borderColor") or {"hex": "3c4a3e", "token": "outline-variant", "alpha": None})
             d.append(f"border-{ {'b': 'bottom', 't': 'top', 'l': 'left', 'r': 'right'}[s['divider']] }: 1px solid {col}")
-        if shape and "bg" not in s and "border" not in s:
+        if shape and "bg" not in s and "border" not in s and not g:
             d.append("overflow: hidden")
         d += self.text_declarations(s)
         return d
@@ -2540,7 +2724,7 @@ def main(argv):
     if len(argv) >= 2 and argv[1] == "init":
         paths = [a for a in argv[2:] if not a.startswith("--")]
         existing = load_config()
-        irs = [parse(open(p, encoding="utf-8").read())[1] for p in paths]
+        irs = [parse(open(p, encoding="utf-8").read(), glass_enabled(existing))[1] for p in paths]
         try:
             cfg, unmapped = init_config(irs, existing, targets)
         except ValueError as e:
@@ -2558,9 +2742,9 @@ def main(argv):
         return 2
     cmd, path = argv[1], argv[2]
     html = open(path, encoding="utf-8").read()
-    th, ir, warn = parse(html)
     opt = next((o for o in ("--config", "--map") if o in argv), None)
     mapping = load_config(argv[argv.index(opt) + 1] if opt else None)
+    th, ir, warn = parse(html, glass_enabled(mapping))
     name = argv[argv.index("--name") + 1] if "--name" in argv else "StitchScreen"
     by_cli = {t["cli"]: t for t in TARGETS.values()}
     by_tokens = {t["tokens_cmd"]: t for t in TARGETS.values()}

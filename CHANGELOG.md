@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Native glass (`"glass": "native"`).** Config flag, default off (output unchanged). A node with `backdrop-blur-*` plus a translucent fill or a light translucent border becomes `style.glass` in the IR (blur, tint from a non-white fill, shape kept); its fake fill, light border and inset shadow are dropped, empty `absolute inset-0` blur/gradient layers next to or inside it are removed, and glass over glass is flattened. A blur alone is not glass.
+  - SwiftUI: `.glassEffect(.regular, in: shape)` (`.regular.tint(...)` for a tint) behind a private `StitchGlass` modifier emitted once per file with `if #available(iOS 26, *)` and an `.ultraThinMaterial` fallback, so iOS 18 targets compile. Adjacent glass siblings in one stack are wrapped in `GlassEffectContainer` through a private `StitchGlassContainer`.
+  - Compose: translucent `surfaceContainer` (or tint) at the original alpha plus a 1.dp white hairline, same shape; no blur library.
+  - HTML: keeps `backdrop-filter: blur(Npx)`, fill and border.
+  - Read from the CLI `--config`, `init`, and the MCP `config` / discovered `stitch-native.json` (all tools); README section "Native glass".
+- Fixtures `fornada-glass-header.html`, `fornada-glass-ios-b.html` (trimmed real Stitch exports); goldens `GlassHeaderView.swift`, `GlassHeaderScreen.kt`, `GlassHeader.html`.
+- **Real-export parsing fixes** found while fetching the fixtures: `tailwind.config = {...};` (trailing `;`) was not found, so the theme came back empty; JS single-quoted strings in the config made the converter exit with "cannot parse tailwind.config". Both now parse. Inputs that parsed before are unaffected.
+
 ## 0.7.2 — 2026-11-25
 
 - **Centred containers (`mx-auto`).** `mx-auto` / `m-auto` were dropped, so a `max-w-* mx-auto` container (the usual Stitch page wrapper, bottom nav, floating bar) sat on the leading edge on wide screens. Now: SwiftUI adds `.frame(maxWidth: .infinity)`, Compose adds `fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally)` before `widthIn(max)`, HTML adds `margin-left/right: auto`. Found by rendering the HTML goldens in a browser.
